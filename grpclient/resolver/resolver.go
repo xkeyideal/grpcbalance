@@ -61,16 +61,6 @@ func (r *CustomizeResolver) SetEndpoints(endpoints []string, attributes map[stri
 	r.updateState()
 }
 
-func (r *CustomizeResolver) GetAddrs() []string {
-	addrs := []string{}
-	for _, ep := range r.endpoints {
-		addr, _ := endpoint.Interpret(ep)
-		addrs = append(addrs, addr)
-	}
-
-	return addrs
-}
-
 func (r *CustomizeResolver) updateState() {
 	addresses := make([]resolver.Address, len(r.endpoints))
 	for i, ep := range r.endpoints {
@@ -78,7 +68,7 @@ func (r *CustomizeResolver) updateState() {
 		addresses[i] = resolver.Address{
 			Addr:       addr,
 			ServerName: serverName,
-			Attributes: r.attributes[addr],
+			Attributes: r.attributes[ep],
 		}
 	}
 	state := resolver.State{
