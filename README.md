@@ -9,7 +9,7 @@ The gRPC-go Require
 
 The gRPC client-side load balancing to work need to main components, the [naming resolver](https://github.com/grpc/grpc/blob/master/doc/naming.md) and the [load balancing policy](https://github.com/grpc/grpc/blob/master/doc/load-balancing.md)
 
-![load balancing work image](https://github.com/xkeyideal/grpcbalance/blob/master/examples/balancer.go)
+![load balancing work image](https://github.com/xkeyideal/grpcbalance/blob/master/examples/balancer.png)
 
 The infra image source [itnext.io](https://itnext.io/on-grpc-load-balancing-683257c5b7b3)
 
