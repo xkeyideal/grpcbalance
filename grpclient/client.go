@@ -18,11 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"grpcbalance/grpclient/balancer"
-	"grpcbalance/grpclient/resolver"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
+	"github.com/xkeyideal/grpcbalance/grpclient/resolver"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc"

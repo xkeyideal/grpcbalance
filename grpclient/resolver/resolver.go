@@ -15,7 +15,7 @@
 package resolver
 
 import (
-	"grpcbalance/grpclient/endpoint"
+	"github.com/xkeyideal/grpcbalance/grpclient/endpoint"
 
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"

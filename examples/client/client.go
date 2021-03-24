@@ -5,10 +5,10 @@ import (
 	"log"
 	"time"
 
-	pb "grpcbalance/grpc/proto/echo"
-	"grpcbalance/grpclient"
-	"grpcbalance/grpclient/balancer"
-	"grpcbalance/grpclient/picker"
+	pb "github.com/xkeyideal/grpcbalance/examples/proto/echo"
+	"github.com/xkeyideal/grpcbalance/grpclient"
+	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
+	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/attributes"

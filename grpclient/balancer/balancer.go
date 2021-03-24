@@ -3,7 +3,8 @@ package balancer
 import (
 	"errors"
 	"fmt"
-	"grpcbalance/grpclient/picker"
+
+	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/connectivity"

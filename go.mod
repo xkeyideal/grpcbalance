@@ -1,4 +1,4 @@
-module grpcbalance
+module github.com/xkeyideal/grpcbalance
 
 go 1.16
 

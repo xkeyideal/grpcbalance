@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	pb "grpcbalance/grpc/proto/echo"
+	pb "github.com/xkeyideal/grpcbalance/examples/proto/echo"
 )
 
 var (
