@@ -1,32 +1,41 @@
 package picker
 
 import (
-	"log"
 	"math/rand"
 	"sync"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/priorityqueue"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/resolver"
 )
 
-type RRPickerBuilder struct {
+type McPickerBuilder struct {
 }
 
-func (pb *RRPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
+func (pb *McPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	if len(info.ReadySCs) == 0 {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
 	scs := []balancer.SubConn{}
 	scToAddr := make(map[balancer.SubConn]resolver.Address)
+	scConnectNum := priorityqueue.NewPriorityQueue()
+	i := 0
 	for sc, scInfo := range info.ReadySCs {
 		scs = append(scs, sc)
 		scToAddr[sc] = scInfo.Address
+		scConnectNum.PushItem(&priorityqueue.Item{
+			Addr:  scInfo.Address.Addr,
+			Val:   0,
+			Index: i,
+		})
+		i++
 	}
 
-	return &rrPicker{
-		subConns: scs,
-		scToAddr: scToAddr,
+	return &mcPicker{
+		subConns:     scs,
+		scToAddr:     scToAddr,
+		scConnectNum: scConnectNum,
 		// Start at a random index, as the same RR balancer rebuilds a new
 		// picker when SubConn states change, and we don't want to apply excess
 		// load to the first server in the list.
@@ -34,7 +43,7 @@ func (pb *RRPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	}
 }
 
-type rrPicker struct {
+type mcPicker struct {
 	// subConns is the snapshot of the roundrobin balancer when this picker was
 	// created. The slice is immutable. Each Get() will do a round robin
 	// selection from it and return the selected SubConn.
@@ -42,11 +51,14 @@ type rrPicker struct {
 
 	scToAddr map[balancer.SubConn]resolver.Address
 
+	// subConns connect number
+	scConnectNum *priorityqueue.PriorityQueue
+
 	mu   sync.Mutex
 	next int
 }
 
-func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
+func (p *mcPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Lock()
 	n := len(p.subConns)
 	p.mu.Unlock()
@@ -56,12 +68,15 @@ func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 
 	p.mu.Lock()
 	sc := p.subConns[p.next]
-	picked := p.scToAddr[sc]
-	p.next = (p.next + 1) % len(p.subConns)
+	//picked := p.scToAddr[sc]
+	item := p.scConnectNum.Min().(*priorityqueue.Item)
+	p.next = item.Index
+	item.Val++
+	p.scConnectNum.UpdateItem(item)
 	p.mu.Unlock()
 
 	done := func(info balancer.DoneInfo) {
-		log.Println("rrpicker done", picked.Addr)
+		//log.Println("mcpicker done", picked.Addr, p.next)
 	}
 
 	return balancer.PickResult{SubConn: sc, Done: done}, nil

@@ -30,6 +30,9 @@ The gRPC client and server applications used in the example are based on the [pr
 * round robin [balancer.RoundRobinBalanceName](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/balancer/roundrobin.go#L11)
 * weighted round robin [balancer.WeightedRobinBalanceName](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/balancer/weightedroundrobin.go#L11)
 * random weighted round robin [balancer.RandomWeightedRobinBalanceName](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/balancer/randomweightedroundrobin.go#L11)
+* minimum connection number [balancer.MinConnectBalanceName](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/balancer/minconnect.go#L11)
+* minimum response consume [balancer.MinRespTimeBalanceName](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/balancer/minresptime.go#L11), keep 10 response consume time, remove maximum and minimum and then take the average value.
+
 
 ### Customize Advanced Balancing Strategy
 

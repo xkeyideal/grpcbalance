@@ -171,6 +171,10 @@ func NewClient(cfg *Config) (*Client, error) {
 		balancer.RegisterWRRBalance(true)
 	case balancer.RandomWeightedRobinBalanceName:
 		balancer.RegisterRWRRBalance(true)
+	case balancer.MinConnectBalanceName:
+		balancer.RegisterMcBalance(true)
+	case balancer.MinRespTimeBalanceName:
+		balancer.RegisterMrtBalance(true)
 	default:
 		cfg.BalanceName = balancer.RoundRobinBalanceName
 		balancer.RegisterRRBalance(true)

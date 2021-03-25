@@ -1,7 +1,6 @@
 package picker
 
 import (
-	"log"
 	"sync"
 
 	"google.golang.org/grpc/balancer"
@@ -66,12 +65,12 @@ func (p *wrrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 
 	p.mu.Lock()
 	sc := p.subConns[p.next]
-	picked := p.scToAddr[sc]
+	//picked := p.scToAddr[sc]
 	p.next = p.wrr.next()
 	p.mu.Unlock()
 
 	done := func(info balancer.DoneInfo) {
-		log.Println("wrrpicker done", picked.Addr)
+		//log.Println("wrrpicker done", picked.Addr)
 	}
 
 	return balancer.PickResult{SubConn: sc, Done: done}, nil

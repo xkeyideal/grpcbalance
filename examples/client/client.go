@@ -42,7 +42,7 @@ func main() {
 
 	grpcCfg := &grpclient.Config{
 		Endpoints:            addrs,
-		BalanceName:          balancer.WeightedRobinBalanceName,
+		BalanceName:          balancer.MinRespTimeBalanceName,
 		Attributes:           attrs,
 		DialTimeout:          2 * time.Second,
 		DialKeepAliveTime:    2 * time.Second,
