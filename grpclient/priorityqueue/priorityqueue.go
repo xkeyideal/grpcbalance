@@ -2,8 +2,14 @@ package priorityqueue
 
 import (
 	"container/heap"
-	"log"
 )
+
+type Item struct {
+	Addr       string
+	Val        int64
+	Index      int
+	queueIndex int
+}
 
 func NewPriorityQueue() *PriorityQueue {
 	queue := &PriorityQueue{}
@@ -65,9 +71,9 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 func (pq *PriorityQueue) Min() interface{} {
-	for _, item := range pq.items {
-		log.Println("v ...interface{}", item.Val, item.Index)
-	}
+	// for _, item := range pq.items {
+	// 	log.Println("v ...interface{}", item.Val, item.Index)
+	// }
 
 	return pq.items[0]
 }

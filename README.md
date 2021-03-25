@@ -39,3 +39,7 @@ The gRPC client and server applications used in the example are based on the [pr
 1. Modify [naming resolver](https://github.com/xkeyideal/grpcbalance/blob/master/grpclient/resolver/resolver.go) with your requirements, first set [attributes.Attributes](https://github.com/grpc/grpc-go/blob/master/attributes/attributes.go) for per endpoint address, second when one endpoint attributes.Attributes changed then update subConn state.
 
 2. Implement yourself balancer & picker function, then based on [attributes.Attributes](https://github.com/grpc/grpc-go/blob/master/attributes/attributes.go) picker subConn in `Pick(balancer.PickInfo) (balancer.PickResult, error)`
+
+### License
+
+Apache 2.0 license.
