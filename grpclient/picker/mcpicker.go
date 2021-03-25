@@ -76,6 +76,10 @@ func (p *mcPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Unlock()
 
 	done := func(info balancer.DoneInfo) {
+		p.mu.Lock()
+		item.Val--
+		p.scConnectNum.UpdateItem(item)
+		p.mu.Unlock()
 		//log.Println("mcpicker done", picked.Addr, p.next)
 	}
 
