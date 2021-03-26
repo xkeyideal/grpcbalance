@@ -201,7 +201,7 @@ func NewClient(cfg *Config) (*Client, error) {
 			return nil, fmt.Errorf("gRPC message recv limit (%d bytes) must be greater than send limit (%d bytes)", cfg.MaxCallRecvMsgSize, cfg.MaxCallSendMsgSize)
 		}
 		callOpts := []grpc.CallOption{
-			defaultFailFast,
+			defaultWaitForReady,
 			defaultMaxCallSendMsgSize,
 			defaultMaxCallRecvMsgSize,
 		}

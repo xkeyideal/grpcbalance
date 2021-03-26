@@ -10,11 +10,15 @@ import (
 )
 
 var (
-	// client-side handling retrying of request failures where data was not written to the wire or
-	// where server indicates it did not process the data. gRPC default is default is "FailFast(true)"
-	// but for etcd we default to "FailFast(false)" to minimize client request error responses due to
-	// transient failures.
-	defaultFailFast = grpc.FailFast(true)
+	// WaitForReady configures the action to take when an RPC is attempted on broken
+	// connections or unreachable servers. If waitForReady is false, the RPC will fail
+	// immediately. Otherwise, the RPC client will block the call until a
+	// connection is available (or the call is canceled or times out) and will
+	// retry the call if it fails due to a transient error.  gRPC will not retry if
+	// data was written to the wire unless the server indicates it did not process
+	// the data.  Please refer to
+	// https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md.
+	defaultWaitForReady = grpc.WaitForReady(false)
 
 	// client-side request send limit, gRPC default is math.MaxInt32
 	// Make sure that "client-side send limit < server-side default send/recv limit"
@@ -47,7 +51,7 @@ var (
 // defaultCallOpts defines a list of default "gRPC.CallOption".
 // Some options are exposed to "clientv3.Config".
 // Defaults will be overridden by the settings in "clientv3.Config".
-var defaultCallOpts = []grpc.CallOption{defaultFailFast, defaultMaxCallSendMsgSize, defaultMaxCallRecvMsgSize}
+var defaultCallOpts = []grpc.CallOption{defaultWaitForReady, defaultMaxCallSendMsgSize, defaultMaxCallRecvMsgSize}
 
 type Config struct {
 	// Endpoints is a list of URLs.
