@@ -5,6 +5,12 @@ The gRPC-go Require
 * Go 1.15+
 * gRPC 1.36.0
 
+### Version
+
+Each version corresponds to the corresponding version of GRPC-go.
+
+For example, tag: v1.36.0 -> grpc-go v1.36.0
+
 ### How it works
 
 The gRPC client-side load balancing to work need to main components, the [naming resolver](https://github.com/grpc/grpc/blob/master/doc/naming.md) and the [load balancing policy](https://github.com/grpc/grpc/blob/master/doc/load-balancing.md)
