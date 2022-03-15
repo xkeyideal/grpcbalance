@@ -36,7 +36,7 @@ type baseBalancer struct {
 	csEvltr *balancer.ConnectivityStateEvaluator
 	state   connectivity.State
 
-	subConns map[resolver.Address]balancer.SubConn
+	subConns *resolver.AddressMap
 	scStates map[balancer.SubConn]connectivity.State
 	picker   balancer.Picker
 	config   Config
@@ -56,7 +56,7 @@ type Config struct {
 
 func (b *baseBalancer) ResolverError(err error) {
 	b.resolverErr = err
-	if len(b.subConns) == 0 {
+	if b.subConns.Len() == 0 {
 		b.state = connectivity.TransientFailure
 	}
 
@@ -76,7 +76,7 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 	// Successful resolution; clear resolver error and ensure we return nil.
 	b.resolverErr = nil
 	// addrsSet is the set converted from addrs, it's used for quick lookup of an address.
-	addrsSet := make(map[resolver.Address]struct{})
+	addrsSet := resolver.NewAddressMap()
 	for _, a := range s.ResolverState.Addresses {
 		// Strip attributes from addresses before using them as map keys. So
 		// that when two addresses only differ in attributes pointers (but with
@@ -94,39 +94,39 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 			aNoAttrs.Attributes = nil
 		}
 
-		addrsSet[aNoAttrs] = struct{}{}
-		if sc, ok := b.subConns[aNoAttrs]; !ok {
+		addrsSet.Set(aNoAttrs, nil)
+		if _, ok := b.subConns.Get(aNoAttrs); !ok {
 			// a is a new address (not existing in b.subConns).
 			//
 			// When creating SubConn, the original address with attributes is
 			// passed through. So that connection configurations in attributes
 			// (like creds) will be used.
-			sc, err := b.cc.NewSubConn([]resolver.Address{a}, balancer.NewSubConnOptions{HealthCheckEnabled: b.config.HealthCheck})
+			sc, err := b.cc.NewSubConn(
+				[]resolver.Address{aNoAttrs},
+				balancer.NewSubConnOptions{HealthCheckEnabled: b.config.HealthCheck},
+			)
 			if err != nil {
 				continue
 			}
-			b.subConns[aNoAttrs] = sc
+			b.subConns.Set(aNoAttrs, sc)
 			b.scStates[sc] = connectivity.Idle
+			b.csEvltr.RecordTransition(connectivity.Shutdown, connectivity.Idle)
 			sc.Connect()
-		} else {
-			// Always update the subconn's address in case the attributes
-			// changed.
-			//
-			// The SubConn does a reflect.DeepEqual of the new and old
-			// addresses. So this is a noop if the current address is the same
-			// as the old one (including attributes).
-			sc.UpdateAddresses([]resolver.Address{a})
 		}
 	}
-	for a, sc := range b.subConns {
+
+	for _, a := range b.subConns.Keys() {
+		sci, _ := b.subConns.Get(a)
+		sc := sci.(balancer.SubConn)
 		// a was removed by resolver.
-		if _, ok := addrsSet[a]; !ok {
+		if _, ok := addrsSet.Get(a); !ok {
 			b.cc.RemoveSubConn(sc)
-			delete(b.subConns, a)
+			b.subConns.Delete(a)
 			// Keep the state of this sc in b.scStates until sc's state becomes Shutdown.
 			// The entry will be deleted in UpdateSubConnState.
 		}
 	}
+
 	// If resolver state contains no addresses, return an error so ClientConn
 	// will trigger re-resolve. Also records this as an resolver error, so when
 	// the overall state turns transient failure, the error message will have
@@ -165,7 +165,9 @@ func (b *baseBalancer) regeneratePicker() {
 	readySCs := make(map[balancer.SubConn]picker.SubConnInfo)
 
 	// Filter out all ready SCs from full subConn map.
-	for addr, sc := range b.subConns {
+	for _, addr := range b.subConns.Keys() {
+		sci, _ := b.subConns.Get(addr)
+		sc := sci.(balancer.SubConn)
 		if st, ok := b.scStates[sc]; ok && st == connectivity.Ready {
 			readySCs[sc] = picker.SubConnInfo{Address: addr}
 		}
@@ -179,12 +181,18 @@ func (b *baseBalancer) UpdateSubConnState(sc balancer.SubConn, state balancer.Su
 	if !ok {
 		return
 	}
-	if oldS == connectivity.TransientFailure && s == connectivity.Connecting {
-		// Once a subconn enters TRANSIENT_FAILURE, ignore subsequent
+
+	if oldS == connectivity.TransientFailure &&
+		(s == connectivity.Connecting || s == connectivity.Idle) {
+		// Once a subconn enters TRANSIENT_FAILURE, ignore subsequent IDLE or
 		// CONNECTING transitions to prevent the aggregated state from being
 		// always CONNECTING when many backends exist but are all down.
+		if s == connectivity.Idle {
+			sc.Connect()
+		}
 		return
 	}
+
 	b.scStates[sc] = s
 	switch s {
 	case connectivity.Idle:

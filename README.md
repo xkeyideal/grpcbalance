@@ -11,6 +11,36 @@ Each version corresponds to the corresponding version of GRPC-go.
 
 For example, tag: v1.36.0 -> grpc-go v1.36.0
 
+### Cautions
+
+v1.45.0 & v1.46.0-dev running panic like this:
+
+```
+panic: runtime error: comparing uncomparable type MyAttribute
+
+goroutine 1 [running]:
+google.golang.org/grpc/attributes.(*Attributes).Equal(0xc00015e4b0, 0xc00013c140)
+        /project/vendor/google.golang.org/grpc/attributes/attributes.go:95 +0x194
+google.golang.org/grpc/resolver.addressMapEntryList.find({0xc00013c1b8, 0x1, 0x8000102}, {{0xc00015e4c8, 0x13}, {0xc00015e4c8, 0xd}, 0xc00013c140, 0x0, 0x0, ...})
+        /project/vendor/google.golang.org/grpc/resolver/map.go:49 +0xb9
+google.golang.org/grpc/resolver.(*AddressMap).Get(0xc00013c188, {{0xc00015e4c8, 0x13}, {0xc00015e4c8, 0xd}, 0xc00013c140, 0x0, 0x0, {0x0, 0x0}})
+        /project/vendor/google.golang.org/grpc/resolver/map.go:59 +0x94
+mesh-sidecar/grpclient_balancer/balancer.(*baseBalancer).UpdateClientConnState(0xc00013b500, {{{0xc000414380, 0x3, 0x3}, 0x0, 0x0}, {0x0, 0x0}})
+```
+
+Your `attribute` needs implement `Equal` function. https://github.com/grpc/grpc-go/blob/v1.46.0-dev/attributes/attributes.go#L91
+
+
+```go
+type MyAttribute struct {
+    attr string
+}
+
+func (ma MyAttribute) Equal(o interface{}) bool {
+    return true
+}
+```
+
 ### How it works
 
 The gRPC client-side load balancing to work need to main components, the [naming resolver](https://github.com/grpc/grpc/blob/master/doc/naming.md) and the [load balancing policy](https://github.com/grpc/grpc/blob/master/doc/load-balancing.md)

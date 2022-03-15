@@ -74,6 +74,7 @@ func (r *CustomizeResolver) updateState() {
 	state := resolver.State{
 		Addresses: addresses,
 	}
+
 	r.cc.UpdateState(state)
 }
 

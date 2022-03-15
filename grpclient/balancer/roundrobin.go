@@ -32,7 +32,7 @@ func (b *rrBalance) Build(cc balancer.ClientConn, opt balancer.BuildOptions) bal
 		cc:            cc,
 		pickerBuilder: b.pickerBuilder,
 
-		subConns: make(map[resolver.Address]balancer.SubConn),
+		subConns: resolver.NewAddressMap(),
 		scStates: make(map[balancer.SubConn]connectivity.State),
 		csEvltr:  &balancer.ConnectivityStateEvaluator{},
 		config:   b.config,
