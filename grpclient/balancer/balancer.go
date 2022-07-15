@@ -136,6 +136,9 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 		// will call resolver.ResolveNow
 		return balancer.ErrBadResolverState
 	}
+
+	b.regeneratePicker()
+	b.cc.UpdateState(balancer.State{ConnectivityState: b.state, Picker: b.picker})
 	return nil
 }
 

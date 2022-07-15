@@ -28,6 +28,7 @@ import (
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
@@ -98,7 +99,8 @@ func (c *Client) dialSetupOpts(dopts ...grpc.DialOption) (opts []grpc.DialOption
 		opts = append(opts, grpc.WithKeepaliveParams(params))
 	}
 	opts = append(opts, dopts...)
-	opts = append(opts, grpc.WithInsecure(), grpc.WithInitialWindowSize(65536*100)) // 100*64K
+	// grpc.WithInsecure() instead of WithTransportCredentials(insecure.NewCredentials())
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithInitialWindowSize(65536*100)) // 100*64K
 
 	// 设置拦截器
 	retryOpts := []grpc_retry.CallOption{
@@ -222,7 +224,8 @@ func NewClient(cfg *Config) (*Client, error) {
 	}
 	// Use a provided endpoint target so that for https:// without any tls config given, then
 	// grpc will assume the certificate server name is the endpoint host.
-	conn, err := client.dialWithBalancer(grpc.WithBalancerName(cfg.BalanceName))
+	opt := grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, cfg.BalanceName))
+	conn, err := client.dialWithBalancer(opt)
 	if err != nil {
 		client.cancel()
 		client.resolver.Close()
