@@ -36,6 +36,7 @@ func (b *mrtBalance) Build(cc balancer.ClientConn, opt balancer.BuildOptions) ba
 		scStates: make(map[balancer.SubConn]connectivity.State),
 		csEvltr:  &balancer.ConnectivityStateEvaluator{},
 		config:   b.config,
+		state:    connectivity.Connecting,
 	}
 
 	// Initialize picker to a picker that always returns

@@ -150,11 +150,12 @@ func (c *Client) dial(dopts ...grpc.DialOption) (*grpc.ClientConn, error) {
 
 		// Is this right for cases where grpc.WithBlock() is not set on the dial options
 		// 设置连接超时的时候，需要明确等连接创建成功之后
-		opts = append(opts, grpc.WithBlock())
+		// opts = append(opts, grpc.WithBlock())
 	}
 
-	initialEndpoints := strings.Join(c.cfg.Endpoints, ";")
-	target := fmt.Sprintf("%s://%p/#initially=[%s]", resolver.Scheme, c, initialEndpoints)
+	// initialEndpoints := strings.Join(c.cfg.Endpoints, ";")
+	// target := fmt.Sprintf("%s://%p/#initially=[%s]", resolver.Scheme, c, initialEndpoints)
+	target := fmt.Sprintf("%s://%p/%s", resolver.Scheme, c, authority(c.Endpoints()[0]))
 	conn, err := grpc.DialContext(dctx, target, opts...)
 	if err != nil {
 		return nil, err
@@ -324,4 +325,18 @@ func IsConnCanceled(err error) bool {
 
 	// <= gRPC v1.7.x returns 'errors.New("grpc: the client connection is closing")'
 	return strings.Contains(err.Error(), "grpc: the client connection is closing")
+}
+
+func authority(endpoint string) string {
+	spl := strings.SplitN(endpoint, "://", 2)
+	if len(spl) < 2 {
+		if strings.HasPrefix(endpoint, "unix:") {
+			return endpoint[len("unix:"):]
+		}
+		if strings.HasPrefix(endpoint, "unixs:") {
+			return endpoint[len("unixs:"):]
+		}
+		return endpoint
+	}
+	return spl[1]
 }
