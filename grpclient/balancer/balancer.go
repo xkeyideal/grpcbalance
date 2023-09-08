@@ -21,6 +21,7 @@ package balancer
 import (
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
@@ -65,6 +66,7 @@ func (b *baseBalancer) ResolverError(err error) {
 		// report an error.
 		return
 	}
+
 	b.regeneratePicker()
 	b.cc.UpdateState(balancer.State{
 		ConnectivityState: b.state,
@@ -101,13 +103,18 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 			// When creating SubConn, the original address with attributes is
 			// passed through. So that connection configurations in attributes
 			// (like creds) will be used.
-			sc, err := b.cc.NewSubConn(
-				[]resolver.Address{aNoAttrs},
-				balancer.NewSubConnOptions{HealthCheckEnabled: b.config.HealthCheck},
-			)
+
+			var sc balancer.SubConn
+			opts := balancer.NewSubConnOptions{
+				HealthCheckEnabled: b.config.HealthCheck,
+				StateListener:      func(scs balancer.SubConnState) { b.updateSubConnState(sc, scs) },
+			}
+
+			sc, err := b.cc.NewSubConn([]resolver.Address{a}, opts)
 			if err != nil {
 				continue
 			}
+
 			b.subConns.Set(aNoAttrs, sc)
 			b.scStates[sc] = connectivity.Idle
 			b.csEvltr.RecordTransition(connectivity.Shutdown, connectivity.Idle)
@@ -120,7 +127,7 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 		sc := sci.(balancer.SubConn)
 		// a was removed by resolver.
 		if _, ok := addrsSet.Get(a); !ok {
-			b.cc.RemoveSubConn(sc)
+			sc.Shutdown()
 			b.subConns.Delete(a)
 			// Keep the state of this sc in b.scStates until sc's state becomes Shutdown.
 			// The entry will be deleted in UpdateSubConnState.
@@ -178,7 +185,12 @@ func (b *baseBalancer) regeneratePicker() {
 	b.picker = b.pickerBuilder.Build(picker.PickerBuildInfo{ReadySCs: readySCs})
 }
 
+// UpdateSubConnState is a nop because a StateListener is always set in NewSubConn.
 func (b *baseBalancer) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
+	log.Printf("base.baseBalancer: UpdateSubConnState(%v, %+v) called unexpectedly\n", sc, state)
+}
+
+func (b *baseBalancer) updateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
 	s := state.ConnectivityState
 	oldS, ok := b.scStates[sc]
 	if !ok {

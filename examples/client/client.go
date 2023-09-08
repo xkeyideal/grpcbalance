@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-var addrs = []string{"10.181.22.31:50051"}
+var addrs = []string{"10.181.22.31:50051", "10.181.22.31:50052"}
 
 func callUnaryEcho(c pb.EchoClient, message string) {
 	pctx, cancel := context.WithCancel(context.Background())
