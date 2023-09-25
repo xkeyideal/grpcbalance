@@ -21,7 +21,6 @@ package balancer
 import (
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
@@ -187,7 +186,7 @@ func (b *baseBalancer) regeneratePicker() {
 
 // UpdateSubConnState is a nop because a StateListener is always set in NewSubConn.
 func (b *baseBalancer) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
-	log.Printf("base.baseBalancer: UpdateSubConnState(%v, %+v) called unexpectedly\n", sc, state)
+	// log.Printf("base.baseBalancer: UpdateSubConnState(%v, %+v) called unexpectedly\n", sc, state)
 }
 
 func (b *baseBalancer) updateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
