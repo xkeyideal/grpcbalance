@@ -1,7 +1,6 @@
 package picker
 
 import (
-	"log"
 	"math/rand"
 	"sync"
 
@@ -56,12 +55,12 @@ func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 
 	p.mu.Lock()
 	sc := p.subConns[p.next]
-	picked := p.scToAddr[sc]
+	//picked := p.scToAddr[sc]
 	p.next = (p.next + 1) % len(p.subConns)
 	p.mu.Unlock()
 
 	done := func(info balancer.DoneInfo) {
-		log.Println("rrpicker done", picked.Addr)
+		// log.Println("rrpicker done", picked.Addr)
 	}
 
 	return balancer.PickResult{SubConn: sc, Done: done}, nil
