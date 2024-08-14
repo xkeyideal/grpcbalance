@@ -1,6 +1,6 @@
 module github.com/xkeyideal/grpcbalance
 
-go 1.21
+go 1.22.6
 
 require (
 	github.com/golang/protobuf v1.5.4
