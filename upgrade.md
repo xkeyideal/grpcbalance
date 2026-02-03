@@ -73,13 +73,30 @@ cfg := &grpclient.Config{
 - 重连间隔从 1s 开始，最大 30s
 - 每次重连成功后重置退避时间
 
-### 4. 修复 filteredPicker.Pick 未使用过滤后节点的 bug
+### 4. 完善服务发现事件处理
+
+**问题**: `watchDiscovery` 方法中的 `EventTypeDelete` 和 `EventTypeError` 处理逻辑缺失。
+
+**解决方案**:
+- 补全 `EventTypeDelete` 处理：当部分节点删除时更新 resolver，全部删除时保持现有连接
+- 补全 `EventTypeError` 处理：记录错误日志，连续错误过多时主动刷新端点
+- `Event` 结构体新增 `Err` 字段，携带具体错误信息
+- `EventType` 新增 `String()` 方法，便于日志输出
+- 添加日志记录，便于问题排查
+
+**修改文件**:
+- `grpclient/client.go` - 完善 watchDiscovery 事件处理
+- `grpclient/discovery/discovery.go` - Event 新增 Err 字段和 String 方法
+- `grpclient/discovery/etcd.go` - 发送事件时填充 Err 字段
+- `grpclient/discovery/consul.go` - 发送事件时填充 Err 字段
+
+### 5. 修复 filteredPicker.Pick 未使用过滤后节点的 bug
 
 **问题**: `filteredPicker.Pick()` 方法过滤了节点后，未将过滤后的节点传递给内部 picker。
 
 **修复**: 将过滤后的节点通过 context 传递给内部 picker。
 
-### 5. 优化节点过滤的 Picker 缓存机制
+### 6. 优化节点过滤的 Picker 缓存机制
 
 **问题**: 原实现每次 Pick 都重新构建临时 picker，导致：
 - 轮询状态被重置（RR/WRR 无法实现真正轮询）
@@ -97,12 +114,16 @@ cfg := &grpclient.Config{
 - 不同版本的节点本身就应该独立统计负载
 - 例如：v1 节点的 inflight 不应影响 v2 节点的选择
 
-### 6. 示例代码修复
+### 7. 示例代码修复
 
 修复了以下示例中缺少 `EnableNodeFilter: true` 配置的问题：
 
 - `examples/comprehensive/main.go` - 3 处配置修复
 - `examples/filter/main.go` - 1 处配置修复
+
+新增 WRR (加权轮询) + 过滤的示例：
+
+- `examples/filter/main.go` - 新增 `wrrFilterExample()` 函数，演示加权轮询与节点过滤的组合使用
 
 ## 一、新增功能
 

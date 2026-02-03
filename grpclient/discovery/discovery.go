@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/picker"
+
 	"google.golang.org/grpc/attributes"
 )
 
@@ -32,8 +34,6 @@ type Endpoint struct {
 	Weight int
 	// Metadata contains additional endpoint metadata
 	Metadata map[string]string
-	// Attributes contains gRPC attributes for the endpoint
-	Attributes *attributes.Attributes
 }
 
 // Event represents a service discovery event
@@ -42,6 +42,8 @@ type Event struct {
 	Type EventType
 	// Endpoints is the list of endpoints after this event
 	Endpoints []Endpoint
+	// Err contains the error if Type is EventTypeError
+	Err error
 }
 
 // EventType represents the type of service discovery event
@@ -55,6 +57,19 @@ const (
 	// EventTypeError indicates an error occurred
 	EventTypeError
 )
+
+func (t EventType) String() string {
+	switch t {
+	case EventTypeUpdate:
+		return "Update"
+	case EventTypeDelete:
+		return "Delete"
+	case EventTypeError:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
 
 // Discovery is the interface for service discovery
 // Implement this interface to integrate with different service discovery systems
@@ -141,7 +156,7 @@ func (p *PollingDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 				eps, err := p.discovery.GetEndpoints(ctx)
 				if err != nil {
 					select {
-					case ch <- Event{Type: EventTypeError, Endpoints: nil}:
+					case ch <- Event{Type: EventTypeError, Endpoints: nil, Err: err}:
 					case <-ctx.Done():
 						return
 					}
@@ -252,11 +267,8 @@ func (s *StaticDiscovery) UpdateEndpoints(endpoints []Endpoint) {
 
 // EndpointToAttrs converts discovery.Endpoint to attributes.Attributes
 func EndpointToAttrs(ep Endpoint) *attributes.Attributes {
-	if ep.Attributes != nil {
-		return ep.Attributes
-	}
-
-	attrs := attributes.New("weight", ep.Weight)
+	// Use int32 for weight to match picker expectations
+	attrs := attributes.New(picker.WeightAttributeKey, int32(ep.Weight))
 	for k, v := range ep.Metadata {
 		attrs = attrs.WithValue(k, v)
 	}

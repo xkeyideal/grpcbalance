@@ -15,6 +15,8 @@
 package resolver
 
 import (
+	"sync"
+
 	"github.com/xkeyideal/grpcbalance/grpclient/endpoint"
 
 	"google.golang.org/grpc/attributes"
@@ -25,12 +27,22 @@ const (
 	Scheme = "customize-endpoints"
 )
 
-// DefineResolver is a Resolver (and resolver.Builder) that can be updated
-// using SetEndpoints.
+// CustomizeResolver is a Resolver (and resolver.Builder) that can be updated
+// using SetEndpoints. It's similar to grpc-go's manual resolver but with
+// endpoint-specific attribute support.
+//
+// Note: Every instance of the CustomizeResolver may only ever be used with a
+// single grpc.ClientConn. Otherwise, bad things will happen.
 type CustomizeResolver struct {
+	// mu guards access to cc and lastSeenState fields.
+	mu sync.Mutex
+	cc resolver.ClientConn
+	// Storing the most recent state update makes this resolver resilient to
+	// restarts, which is possible with channel idleness.
+	lastSeenState *resolver.State
+
 	endpoints  []string
 	attributes map[string]*attributes.Attributes
-	cc         resolver.ClientConn
 }
 
 func NewCustomizeResolver(endpoints []string, attributes map[string]*attributes.Attributes) *CustomizeResolver {
@@ -48,20 +60,37 @@ func (r *CustomizeResolver) Scheme() string {
 
 // Build returns itself for Resolver, because it's both a builder and a resolver.
 func (r *CustomizeResolver) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	// Populates endpoints stored in r into ClientConn (cc).
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.cc = cc
-	r.updateState()
+	// If we have a previously stored state (e.g., from InitialState or SetEndpoints
+	// before Build was called), apply it now.
+	if r.lastSeenState != nil {
+		r.cc.UpdateState(*r.lastSeenState)
+	} else {
+		// Otherwise, build state from current endpoints.
+		r.updateStateLocked()
+	}
 
 	return r, nil
 }
 
-func (r *CustomizeResolver) SetEndpoints(endpoints []string, attributes map[string]*attributes.Attributes) {
+// SetEndpoints updates the resolver's endpoints and pushes the new state to
+// the ClientConn. If Build has not been called yet, the state is stored for
+// later use when Build is called.
+func (r *CustomizeResolver) SetEndpoints(endpoints []string, attrs map[string]*attributes.Attributes) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.endpoints = endpoints
-	r.attributes = attributes
-	r.updateState()
+	r.attributes = attrs
+	r.updateStateLocked()
 }
 
-func (r *CustomizeResolver) updateState() {
+// updateStateLocked builds the resolver state from endpoints and updates the
+// ClientConn. Must be called with r.mu held.
+func (r *CustomizeResolver) updateStateLocked() {
 	addresses := make([]resolver.Address, len(r.endpoints))
 	for i, ep := range r.endpoints {
 		addr, serverName := endpoint.Interpret(ep)
@@ -75,14 +104,32 @@ func (r *CustomizeResolver) updateState() {
 		Addresses: addresses,
 	}
 
-	r.cc.UpdateState(state)
+	// Store the state for resilience to channel idleness restarts.
+	r.lastSeenState = &state
+
+	// Only update if cc is set (Build has been called).
+	if r.cc != nil {
+		r.cc.UpdateState(state)
+	}
 }
 
-// ResolveNow is a noop for Resolver.
-// When balancer.UpdateClientConnState error just returned ErrBadResolverState will call resolver.ResolveNow
+// ResolveNow is a noop for this resolver.
+// When balancer.UpdateClientConnState returns ErrBadResolverState,
+// gRPC will call resolver.ResolveNow to trigger re-resolution.
 func (r *CustomizeResolver) ResolveNow(o resolver.ResolveNowOptions) {
+	// For static resolver, we can simply re-push the last known state.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
+	if r.cc != nil && r.lastSeenState != nil {
+		r.cc.UpdateState(*r.lastSeenState)
+	}
 }
 
-// Close is a noop for Resolver.
-func (r *CustomizeResolver) Close() {}
+// Close cleans up the resolver.
+func (r *CustomizeResolver) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.cc = nil
+}

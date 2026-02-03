@@ -7,6 +7,7 @@ import (
 
 	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
 	"github.com/xkeyideal/grpcbalance/grpclient/discovery"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/attributes"
@@ -132,4 +133,9 @@ type Config struct {
 	// OnEndpointsUpdate is an optional callback that will be called when endpoints are updated
 	// This can be used for logging, metrics, or custom handling of endpoint changes
 	OnEndpointsUpdate func(endpoints []discovery.Endpoint)
+
+	// Logger is the logger implementation to use for client logging.
+	// If nil, a default logger with Info level will be used.
+	// Use logger.NewNopLogger() to disable logging entirely.
+	Logger logger.Logger
 }

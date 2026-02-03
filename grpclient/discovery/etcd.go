@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build etcd
-// +build etcd
-
 package discovery
 
 import (
@@ -138,7 +135,7 @@ func (e *EtcdDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 
 					// Notify about potential error
 					select {
-					case ch <- Event{Type: EventTypeError}:
+					case ch <- Event{Type: EventTypeError, Err: fmt.Errorf("watch channel closed, reconnecting")}:
 					case <-ctx.Done():
 						return
 					}
@@ -176,7 +173,7 @@ func (e *EtcdDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 					}
 
 					select {
-					case ch <- Event{Type: EventTypeError}:
+					case ch <- Event{Type: EventTypeError, Err: resp.Err()}:
 					case <-ctx.Done():
 						return
 					}
@@ -204,7 +201,7 @@ func (e *EtcdDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 				eps, err := e.GetEndpoints(ctx)
 				if err != nil {
 					select {
-					case ch <- Event{Type: EventTypeError}:
+					case ch <- Event{Type: EventTypeError, Err: err}:
 					case <-ctx.Done():
 						return
 					}

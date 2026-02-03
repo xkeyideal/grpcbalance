@@ -25,6 +25,7 @@ import (
 	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
 	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
 	"github.com/xkeyideal/grpcbalance/grpclient/discovery"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/resolver"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
@@ -35,10 +36,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
-
-func init() {
-	//balancer.RegisterWRRBalance(true)
-}
 
 // Client provides and manages an etcd v3 client session.
 type Client struct {
@@ -56,26 +53,9 @@ type Client struct {
 	// discovery related fields
 	discovery discovery.Discovery
 	watchDone chan struct{}
-}
 
-// Close shuts down the client's etcd connections.
-func (c *Client) Close() error {
-	c.cancel()
-
-	// Wait for discovery watcher to stop
-	if c.watchDone != nil {
-		<-c.watchDone
-	}
-
-	// Close discovery client
-	if c.discovery != nil {
-		c.discovery.Close()
-	}
-
-	if c.conn != nil {
-		return toErr(c.ctx, c.conn.Close())
-	}
-	return c.ctx.Err()
+	// logger for client operations
+	logger logger.Logger
 }
 
 func (c *Client) GetCallOpts() []grpc.CallOption {
@@ -287,6 +267,13 @@ func NewClient(cfg *Config) (*Client, error) {
 		callOpts: defaultCallOpts,
 	}
 
+	// Initialize logger
+	if cfg.Logger != nil {
+		client.logger = cfg.Logger
+	} else {
+		client.logger = logger.NewDefaultLogger(logger.LevelInfo)
+	}
+
 	if cfg.MaxCallSendMsgSize > 0 || cfg.MaxCallRecvMsgSize > 0 {
 		if cfg.MaxCallRecvMsgSize > 0 && cfg.MaxCallSendMsgSize > cfg.MaxCallRecvMsgSize {
 			return nil, fmt.Errorf("gRPC message recv limit (%d bytes) must be greater than send limit (%d bytes)", cfg.MaxCallRecvMsgSize, cfg.MaxCallSendMsgSize)
@@ -397,18 +384,25 @@ func (c *Client) startDiscoveryWatcher() error {
 func (c *Client) watchDiscovery(eventCh <-chan discovery.Event) {
 	defer close(c.watchDone)
 
+	var consecutiveErrors int
+	const maxConsecutiveErrors = 5
+
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case event, ok := <-eventCh:
 			if !ok {
+				// Channel closed, discovery stopped
+				c.logger.Warn("discovery watch channel closed")
 				return
 			}
 
 			switch event.Type {
 			case discovery.EventTypeUpdate:
 				if len(event.Endpoints) > 0 {
+					consecutiveErrors = 0 // Reset error counter on successful update
+
 					c.mu.Lock()
 					addrs := discovery.EndpointsToAddrs(event.Endpoints)
 					attrs := discovery.EndpointsToAttrsMap(event.Endpoints)
@@ -417,16 +411,79 @@ func (c *Client) watchDiscovery(eventCh <-chan discovery.Event) {
 					c.resolver.SetEndpoints(addrs, attrs)
 					c.mu.Unlock()
 
+					c.logger.Infof("discovery endpoints updated, count=%d", len(event.Endpoints))
+
+					// Call the callback if set
+					if c.cfg.OnEndpointsUpdate != nil {
+						c.cfg.OnEndpointsUpdate(event.Endpoints)
+					}
+				} else {
+					// Empty endpoints update - this might indicate all endpoints are gone
+					c.logger.Warn("discovery returned empty endpoints, keeping existing endpoints")
+				}
+
+			case discovery.EventTypeDelete:
+				// Handle endpoint deletion
+				// When endpoints are deleted, we receive an update with remaining endpoints
+				// If all endpoints are deleted, the Endpoints slice will be empty or nil
+				if len(event.Endpoints) == 0 {
+					// All endpoints deleted - this is a critical state
+					// Keep existing endpoints to maintain connectivity
+					c.logger.Warn("all discovery endpoints deleted, keeping existing endpoints")
+				} else {
+					// Some endpoints deleted, update with remaining endpoints
+					c.mu.Lock()
+					addrs := discovery.EndpointsToAddrs(event.Endpoints)
+					attrs := discovery.EndpointsToAttrsMap(event.Endpoints)
+					c.cfg.Endpoints = addrs
+					c.cfg.Attributes = attrs
+					c.resolver.SetEndpoints(addrs, attrs)
+					c.mu.Unlock()
+
+					c.logger.Infof("discovery endpoints deleted, remaining count=%d", len(event.Endpoints))
+
 					// Call the callback if set
 					if c.cfg.OnEndpointsUpdate != nil {
 						c.cfg.OnEndpointsUpdate(event.Endpoints)
 					}
 				}
-			case discovery.EventTypeDelete:
-				// Handle endpoint deletion if needed
+
 			case discovery.EventTypeError:
-				// Log error or handle as needed
-				// The discovery implementation should handle reconnection
+				consecutiveErrors++
+				errMsg := "unknown error"
+				if event.Err != nil {
+					errMsg = event.Err.Error()
+				}
+				c.logger.Errorf("discovery error occurred: %s, consecutive errors=%d", errMsg, consecutiveErrors)
+
+				// If too many consecutive errors, try to re-fetch endpoints
+				if consecutiveErrors >= maxConsecutiveErrors {
+					c.logger.Warnf("too many consecutive discovery errors (%d), attempting to refresh endpoints", consecutiveErrors)
+
+					// Try to get current endpoints directly
+					ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+					eps, err := c.discovery.GetEndpoints(ctx)
+					cancel()
+
+					if err != nil {
+						c.logger.Errorf("failed to refresh endpoints: %v", err)
+					} else if len(eps) > 0 {
+						c.mu.Lock()
+						addrs := discovery.EndpointsToAddrs(eps)
+						attrs := discovery.EndpointsToAttrsMap(eps)
+						c.cfg.Endpoints = addrs
+						c.cfg.Attributes = attrs
+						c.resolver.SetEndpoints(addrs, attrs)
+						c.mu.Unlock()
+
+						c.logger.Infof("endpoints refreshed successfully, count=%d", len(eps))
+						consecutiveErrors = 0
+
+						if c.cfg.OnEndpointsUpdate != nil {
+							c.cfg.OnEndpointsUpdate(eps)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -434,6 +491,26 @@ func (c *Client) watchDiscovery(eventCh <-chan discovery.Event) {
 
 // ActiveConnection returns the current in-use connection
 func (c *Client) ActiveConnection() *grpc.ClientConn { return c.conn }
+
+// Close shuts down the client's etcd connections.
+func (c *Client) Close() error {
+	c.cancel()
+
+	// Wait for discovery watcher to stop
+	if c.watchDone != nil {
+		<-c.watchDone
+	}
+
+	// Close discovery client
+	if c.discovery != nil {
+		c.discovery.Close()
+	}
+
+	if c.conn != nil {
+		return toErr(c.ctx, c.conn.Close())
+	}
+	return c.ctx.Err()
+}
 
 // isHaltErr returns true if the given error and context indicate no forward
 // progress can be made, even after reconnecting.

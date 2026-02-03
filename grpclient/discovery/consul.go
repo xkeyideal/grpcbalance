@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build consul
-// +build consul
-
 package discovery
 
 import (
@@ -143,7 +140,7 @@ func (c *ConsulDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 					return
 				}
 				select {
-				case ch <- Event{Type: EventTypeError}:
+				case ch <- Event{Type: EventTypeError, Err: err}:
 				case <-ctx.Done():
 					return
 				}
