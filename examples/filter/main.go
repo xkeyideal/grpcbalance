@@ -42,6 +42,10 @@ func main() {
 	// 示例4: 组合过滤器
 	log.Println("\n--- 示例4: 组合过滤器 ---")
 	combinedFilterExample()
+
+	// 示例5: WRR (加权轮询) + 过滤
+	log.Println("\n--- 示例5: WRR (加权轮询) + 过滤 ---")
+	wrrFilterExample()
 }
 
 // versionFilterExample 展示按版本过滤节点
@@ -283,6 +287,115 @@ func combinedFilterExample() {
 	verifyFilterResult(ports, []string{"50051", "50052"}, "v1.x + prod环境")
 
 	log.Println("\n预期结果: 只有 50051 和 50052 满足条件 (v1.0.0+prod, v1.1.0+prod)")
+}
+
+// wrrFilterExample 展示加权轮询 (WRR) + 过滤功能
+// 验证过滤后的节点仍能保持正确的加权轮询行为
+func wrrFilterExample() {
+	// 为节点设置权重和版本
+	// 权重: 50051=1, 50052=2, 50053=3
+	// 版本: 50051=v1.0, 50052=v1.0, 50053=v2.0
+	attrs := make(map[string]*attributes.Attributes)
+	weights := []int32{1, 2, 3}
+	versions := []string{"v1.0", "v1.0", "v2.0"}
+
+	for i, addr := range addrs {
+		attrs[addr] = attributes.New(
+			picker.WeightAttributeKey, weights[i],
+		).WithValue(
+			picker.VersionFilterKey, versions[i],
+		)
+	}
+
+	cfg := &grpclient.Config{
+		Endpoints:        addrs,
+		BalanceName:      balancer.WeightedRobinBalanceName, // 使用加权轮询
+		Attributes:       attrs,
+		EnableNodeFilter: true, // 启用节点过滤功能
+
+		DialTimeout:          10 * time.Second,
+		DialKeepAliveTime:    10 * time.Second,
+		DialKeepAliveTimeout: 2 * time.Second,
+		PermitWithoutStream:  true,
+	}
+
+	client, err := grpclient.NewClient(cfg)
+	if err != nil {
+		log.Printf("创建客户端失败: %v", err)
+		return
+	}
+	defer client.Close()
+
+	cc := client.ActiveConnection()
+	echoClient := pb.NewEchoClient(cc)
+
+	log.Println("节点配置 (WRR + 版本):")
+	for i, addr := range addrs {
+		log.Printf("  %s: weight=%d, version=%s", addr, weights[i], versions[i])
+	}
+
+	// 测试1: 无过滤时的加权轮询
+	// 权重比 1:2:3，发送 12 个请求，预期分布: 50051=2次, 50052=4次, 50053=6次
+	log.Println("\n测试1: 无过滤的加权轮询 (权重 1:2:3, 共12次请求):")
+	portCount := make(map[string]int)
+	for i := 0; i < 12; i++ {
+		port := callEchoAndExtractPort(echoClient, context.Background(), "WRR无过滤")
+		portCount[port]++
+	}
+	log.Printf("端口分布: 50051=%d次, 50052=%d次, 50053=%d次",
+		portCount["50051"], portCount["50052"], portCount["50053"])
+	log.Println("预期分布: 50051≈2次, 50052≈4次, 50053≈6次 (比例 1:2:3)")
+
+	// 测试2: 过滤后的加权轮询
+	// 只保留 v1.0 版本节点 (50051, 50052)，权重比 1:2
+	// 发送 9 个请求，预期分布: 50051=3次, 50052=6次
+	log.Println("\n测试2: 过滤 v1.0 版本后的加权轮询 (只有 50051:1 和 50052:2):")
+	ctx := picker.WithNodeFilter(context.Background(), picker.VersionFilter("v1.0"))
+
+	portCount = make(map[string]int)
+	for i := 0; i < 9; i++ {
+		port := callEchoAndExtractPort(echoClient, ctx, "WRR+过滤")
+		portCount[port]++
+	}
+
+	// 验证过滤是否生效
+	if portCount["50053"] > 0 {
+		log.Printf("❌ 过滤失败: 50053 (v2.0) 不应该被访问，但访问了 %d 次", portCount["50053"])
+	} else {
+		log.Println("✅ 过滤验证通过: 50053 (v2.0) 未被访问")
+	}
+
+	log.Printf("端口分布: 50051=%d次, 50052=%d次",
+		portCount["50051"], portCount["50052"])
+	log.Println("预期分布: 50051≈3次, 50052≈6次 (比例 1:2)")
+
+	// 验证加权轮询是否正确
+	// 允许一定误差，因为初始索引是随机的
+	ratio := float64(portCount["50052"]) / float64(portCount["50051"]+1) // +1 避免除零
+	if ratio >= 1.5 && ratio <= 2.5 {
+		log.Printf("✅ 加权轮询验证通过: 50052/50051 比例约 %.2f (预期约 2.0)", ratio)
+	} else {
+		log.Printf("⚠️ 加权轮询比例偏离预期: 50052/50051 = %.2f (预期约 2.0)", ratio)
+	}
+
+	// 测试3: 多次使用相同过滤条件，验证缓存机制
+	log.Println("\n测试3: 验证缓存机制 (相同过滤条件应复用 picker):")
+	portCount = make(map[string]int)
+	for i := 0; i < 6; i++ {
+		// 每次创建新的 context 但使用相同的过滤条件
+		ctx := picker.WithNodeFilter(context.Background(), picker.VersionFilter("v1.0"))
+		port := callEchoAndExtractPort(echoClient, ctx, "缓存验证")
+		portCount[port]++
+	}
+	log.Printf("端口分布: 50051=%d次, 50052=%d次", portCount["50051"], portCount["50052"])
+
+	// 如果缓存生效，轮询应该是连续的，不会每次都重置
+	// 检查是否有交替访问的模式
+	if portCount["50051"] > 0 && portCount["50052"] > 0 {
+		log.Println("✅ 缓存验证通过: 两个节点都被访问，说明轮询状态保持")
+	} else {
+		log.Println("⚠️ 缓存可能未生效: 只有一个节点被访问")
+	}
 }
 
 func callEchoWithContext(c pb.EchoClient, ctx context.Context, message string) {

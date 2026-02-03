@@ -2,7 +2,9 @@ package picker
 
 import (
 	"context"
+	"sort"
 	"strings"
+	"sync"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/resolver"
@@ -111,6 +113,10 @@ func MetadataExistsFilter(key string) NodeFilter {
 }
 
 // FilteredPickerBuilder 包装一个 PickerBuilder，在构建时应用节点过滤
+// 注意：对于有状态的负载均衡算法（如 P2C、MinConnect、MinRespTime），
+// 过滤后的子集使用独立的统计数据，与全量节点的统计不共享。
+// 这在大多数场景下是可接受的，因为过滤通常用于灰度发布、版本控制等场景，
+// 不同版本的节点本身就应该独立统计。
 type FilteredPickerBuilder struct {
 	inner PickerBuilder
 }
@@ -122,24 +128,45 @@ func NewFilteredPickerBuilder(pb PickerBuilder) *FilteredPickerBuilder {
 
 func (fpb *FilteredPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	// 直接构建，过滤在 Pick 时进行
+	// 同时预构建一个使用所有节点的 picker，用于无过滤器场景
 	return &filteredPicker{
-		innerBuilder: fpb.inner,
-		allNodes:     info.ReadySCs,
+		innerBuilder:  fpb.inner,
+		allNodes:      info.ReadySCs,
+		defaultPicker: fpb.inner.Build(info),
+		cachedPickers: make(map[string]balancer.Picker),
 	}
 }
 
 type filteredPicker struct {
-	innerBuilder PickerBuilder
-	allNodes     map[balancer.SubConn]SubConnInfo
+	innerBuilder  PickerBuilder
+	allNodes      map[balancer.SubConn]SubConnInfo
+	defaultPicker balancer.Picker // 无过滤器时使用的 picker
+
+	mu            sync.RWMutex
+	cachedPickers map[string]balancer.Picker // 缓存按过滤条件分组的 picker
+}
+
+// filterCacheKey 生成过滤后节点集合的缓存 key
+// 使用节点地址排序后拼接作为 key
+func filterCacheKey(nodes map[balancer.SubConn]SubConnInfo) string {
+	if len(nodes) == 0 {
+		return ""
+	}
+	addrs := make([]string, 0, len(nodes))
+	for _, info := range nodes {
+		addrs = append(addrs, info.Address.Addr)
+	}
+	// 排序以确保相同节点集合生成相同的 key
+	sort.Strings(addrs)
+	return strings.Join(addrs, ",")
 }
 
 func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	// 获取过滤器
 	filters := NodeFiltersFromContext(info.Ctx)
 	if len(filters) == 0 {
-		// 没有过滤器，使用所有节点构建 picker
-		picker := fp.innerBuilder.Build(PickerBuildInfo{ReadySCs: fp.allNodes})
-		return picker.Pick(info)
+		// 没有过滤器，使用预构建的 defaultPicker
+		return fp.defaultPicker.Pick(info)
 	}
 
 	// 过滤节点
@@ -161,8 +188,36 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 
-	// 使用过滤后的节点构建临时 picker 并选择
+	// 如果过滤后的节点与全部节点相同，使用 defaultPicker
+	if len(filteredNodes) == len(fp.allNodes) {
+		return fp.defaultPicker.Pick(info)
+	}
+
+	// 生成缓存 key
+	cacheKey := filterCacheKey(filteredNodes)
+
+	// 先尝试读取缓存
+	fp.mu.RLock()
+	cachedPicker, ok := fp.cachedPickers[cacheKey]
+	fp.mu.RUnlock()
+
+	if ok {
+		return cachedPicker.Pick(info)
+	}
+
+	// 缓存未命中，需要构建新的 picker
+	fp.mu.Lock()
+	// 双重检查
+	if cachedPicker, ok = fp.cachedPickers[cacheKey]; ok {
+		fp.mu.Unlock()
+		return cachedPicker.Pick(info)
+	}
+
+	// 构建并缓存
 	picker := fp.innerBuilder.Build(PickerBuildInfo{ReadySCs: filteredNodes})
+	fp.cachedPickers[cacheKey] = picker
+	fp.mu.Unlock()
+
 	return picker.Pick(info)
 }
 

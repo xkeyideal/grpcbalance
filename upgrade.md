@@ -79,7 +79,25 @@ cfg := &grpclient.Config{
 
 **修复**: 将过滤后的节点通过 context 传递给内部 picker。
 
-### 5. 示例代码修复
+### 5. 优化节点过滤的 Picker 缓存机制
+
+**问题**: 原实现每次 Pick 都重新构建临时 picker，导致：
+- 轮询状态被重置（RR/WRR 无法实现真正轮询）
+- 统计信息丢失（P2C、MinConnect、MinRespTime 等算法失效）
+
+**解决方案**:
+- 预构建 `defaultPicker` 用于无过滤器场景
+- 使用 `cachedPickers` 缓存相同过滤条件的 picker
+- 相同节点集合复用同一个 picker，保持轮询状态
+- 当节点状态变化时，balancer 会重建整个 picker，缓存自然清除
+
+**设计决策**:
+对于有状态的负载均衡算法（P2C、MinConnect、MinRespTime），过滤后的子集使用独立的统计数据，与全量节点不共享。这在大多数场景下是合理的：
+- 过滤通常用于灰度发布、版本控制等场景
+- 不同版本的节点本身就应该独立统计负载
+- 例如：v1 节点的 inflight 不应影响 v2 节点的选择
+
+### 6. 示例代码修复
 
 修复了以下示例中缺少 `EnableNodeFilter: true` 配置的问题：
 
