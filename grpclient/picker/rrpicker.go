@@ -48,15 +48,13 @@ type rrPicker struct {
 func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Lock()
 	n := len(p.subConns)
-	p.mu.Unlock()
 	if n == 0 {
+		p.mu.Unlock()
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
-
-	p.mu.Lock()
 	sc := p.subConns[p.next]
 	// picked := p.scToAddr[sc]
-	p.next = (p.next + 1) % len(p.subConns)
+	p.next = (p.next + 1) % n
 	p.mu.Unlock()
 
 	done := func(info balancer.DoneInfo) {

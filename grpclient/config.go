@@ -5,6 +5,9 @@ import (
 	"math"
 	"time"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
+	"github.com/xkeyideal/grpcbalance/grpclient/discovery"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/attributes"
 )
@@ -102,4 +105,31 @@ type Config struct {
 	Context context.Context
 
 	PermitWithoutStream bool
+
+	// EnableCircuitBreaker enables circuit breaker for load balancing
+	// When enabled, endpoints that fail consecutively will be temporarily disabled
+	EnableCircuitBreaker bool
+
+	// CircuitBreakerConfig is the configuration for the circuit breaker
+	// If nil, default configuration will be used when EnableCircuitBreaker is true
+	CircuitBreakerConfig *circuitbreaker.Config
+
+	// EnableNodeFilter enables node filtering support for load balancing
+	// When enabled, you can use picker.WithNodeFilter() to filter nodes by version, metadata, address, etc.
+	// Note: This adds a small performance overhead, so only enable when needed
+	EnableNodeFilter bool
+
+	// Discovery is the service discovery implementation
+	// If set, Endpoints will be ignored and endpoints will be fetched from Discovery
+	// The client will automatically watch for endpoint changes and update the resolver
+	Discovery discovery.Discovery
+
+	// DiscoveryPollInterval is the interval for polling-based discovery
+	// Only used when Discovery doesn't support native watching
+	// If 0, defaults to 30 seconds
+	DiscoveryPollInterval time.Duration
+
+	// OnEndpointsUpdate is an optional callback that will be called when endpoints are updated
+	// This can be used for logging, metrics, or custom handling of endpoint changes
+	OnEndpointsUpdate func(endpoints []discovery.Endpoint)
 }

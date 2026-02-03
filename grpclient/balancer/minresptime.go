@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/balancer"
@@ -19,8 +20,45 @@ func RegisterMrtBalance(healthCheck bool) {
 	rb := &mrtBalance{
 		pickerBuilder: &picker.MrtPickerBuilder{},
 		config: Config{
-			HealthCheck:     healthCheck,
-			StripAttributes: true,
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterMrtBalanceWithFilter registers min response time balancer with node filter support
+func RegisterMrtBalanceWithFilter(healthCheck bool) {
+	rb := &mrtBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(&picker.MrtPickerBuilder{}),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterMrtBalanceWithCircuitBreaker registers min response time balancer with circuit breaker
+func RegisterMrtBalanceWithCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+	rb := &mrtBalance{
+		pickerBuilder: picker.NewCircuitBreakerPickerBuilder(&picker.MrtPickerBuilder{}, cbConfig),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterMrtBalanceWithFilterAndCircuitBreaker registers min response time balancer with both filter and circuit breaker
+func RegisterMrtBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+	rb := &mrtBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(
+			picker.NewCircuitBreakerPickerBuilder(&picker.MrtPickerBuilder{}, cbConfig),
+		),
+		config: Config{
+			HealthCheck: healthCheck,
 		},
 	}
 
@@ -32,8 +70,9 @@ func (b *mrtBalance) Build(cc balancer.ClientConn, opt balancer.BuildOptions) ba
 		cc:            cc,
 		pickerBuilder: b.pickerBuilder,
 
-		subConns: resolver.NewAddressMap(),
+		subConns: resolver.NewAddressMapV2[balancer.SubConn](),
 		scStates: make(map[balancer.SubConn]connectivity.State),
+		scAddrs:  make(map[balancer.SubConn]resolver.Address),
 		csEvltr:  &balancer.ConnectivityStateEvaluator{},
 		config:   b.config,
 		state:    connectivity.Connecting,

@@ -71,9 +71,8 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 func (pq *PriorityQueue) Min() interface{} {
-	// for _, item := range pq.items {
-	// 	log.Println("v ...interface{}", item.Val, item.Index)
-	// }
-
+	if len(pq.items) == 0 {
+		return nil
+	}
 	return pq.items[0]
 }

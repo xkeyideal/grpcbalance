@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/balancer"
@@ -19,8 +20,45 @@ func RegisterWRRBalance(healthCheck bool) {
 	rb := &wrrBalance{
 		pickerBuilder: &picker.WRRPickerBuilder{},
 		config: Config{
-			HealthCheck:     healthCheck,
-			StripAttributes: false,
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterWRRBalanceWithFilter registers weighted round robin balancer with node filter support
+func RegisterWRRBalanceWithFilter(healthCheck bool) {
+	rb := &wrrBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(&picker.WRRPickerBuilder{}),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterWRRBalanceWithCircuitBreaker registers weighted round robin balancer with circuit breaker
+func RegisterWRRBalanceWithCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+	rb := &wrrBalance{
+		pickerBuilder: picker.NewCircuitBreakerPickerBuilder(&picker.WRRPickerBuilder{}, cbConfig),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+	}
+
+	balancer.Register(rb)
+}
+
+// RegisterWRRBalanceWithFilterAndCircuitBreaker registers weighted round robin balancer with both filter and circuit breaker
+func RegisterWRRBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+	rb := &wrrBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(
+			picker.NewCircuitBreakerPickerBuilder(&picker.WRRPickerBuilder{}, cbConfig),
+		),
+		config: Config{
+			HealthCheck: healthCheck,
 		},
 	}
 
@@ -32,8 +70,9 @@ func (b *wrrBalance) Build(cc balancer.ClientConn, opt balancer.BuildOptions) ba
 		cc:            cc,
 		pickerBuilder: b.pickerBuilder,
 
-		subConns: resolver.NewAddressMap(),
+		subConns: resolver.NewAddressMapV2[balancer.SubConn](),
 		scStates: make(map[balancer.SubConn]connectivity.State),
+		scAddrs:  make(map[balancer.SubConn]resolver.Address),
 		csEvltr:  &balancer.ConnectivityStateEvaluator{},
 		config:   b.config,
 		state:    connectivity.Connecting,

@@ -60,7 +60,7 @@ func serverStream(cc *grpc.ClientConn) {
 			panic(err)
 		}
 
-		log.Printf(resp.Message)
+		log.Println(resp.Message)
 	}
 }
 

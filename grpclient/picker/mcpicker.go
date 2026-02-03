@@ -61,16 +61,20 @@ type mcPicker struct {
 func (p *mcPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Lock()
 	n := len(p.subConns)
-	p.mu.Unlock()
 	if n == 0 {
+		p.mu.Unlock()
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 
-	p.mu.Lock()
+	minItem := p.scConnectNum.Min()
+	if minItem == nil {
+		p.mu.Unlock()
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
+	}
+	item := minItem.(*priorityqueue.Item)
+	p.next = item.Index
 	sc := p.subConns[p.next]
 	//picked := p.scToAddr[sc]
-	item := p.scConnectNum.Min().(*priorityqueue.Item)
-	p.next = item.Index
 	item.Val++
 	p.scConnectNum.UpdateItem(item)
 	p.mu.Unlock()

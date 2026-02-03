@@ -24,8 +24,11 @@ func (pb *WRRPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		scToAddr[sc] = scInfo.Address
 		weight = 1
 		if scInfo.Address.Attributes != nil {
-			val := scInfo.Address.Attributes.Value(WeightAttributeKey)
-			weight = val.(int32)
+			if val := scInfo.Address.Attributes.Value(WeightAttributeKey); val != nil {
+				if w, ok := val.(int32); ok {
+					weight = w
+				}
+			}
 		}
 		wrr.add(weight)
 	}
@@ -58,12 +61,10 @@ type wrrPicker struct {
 func (p *wrrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Lock()
 	n := len(p.subConns)
-	p.mu.Unlock()
 	if n == 0 {
+		p.mu.Unlock()
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
-
-	p.mu.Lock()
 	sc := p.subConns[p.next]
 	//picked := p.scToAddr[sc]
 	p.next = p.wrr.next()

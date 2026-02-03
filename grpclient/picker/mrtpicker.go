@@ -1,7 +1,6 @@
 package picker
 
 import (
-	"math"
 	"math/rand"
 	"sync"
 	"time"
@@ -12,7 +11,11 @@ import (
 	"google.golang.org/grpc/resolver"
 )
 
-const recordTimes = 10
+const (
+	// EWMA 衰减因子，值越大新数据权重越高
+	// alpha = 0.3 意味着新值占 30%，历史值占 70%
+	ewmaAlpha = 0.3
+)
 
 type MrtPickerBuilder struct {
 }
@@ -24,7 +27,7 @@ func (pb *MrtPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	scs := []balancer.SubConn{}
 	scToAddr := make(map[balancer.SubConn]resolver.Address)
 	scCostTime := priorityqueue.NewPriorityQueue()
-	scRecords := make([][]int64, len(info.ReadySCs))
+	scEWMA := make([]float64, len(info.ReadySCs))
 	i := 0
 	for sc, scInfo := range info.ReadySCs {
 		scs = append(scs, sc)
@@ -34,7 +37,7 @@ func (pb *MrtPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 			Val:   0,
 			Index: i,
 		})
-		scRecords[i] = make([]int64, recordTimes)
+		scEWMA[i] = 0
 		i++
 	}
 
@@ -42,7 +45,7 @@ func (pb *MrtPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		subConns:   scs,
 		scToAddr:   scToAddr,
 		scCostTime: scCostTime,
-		scRecords:  scRecords,
+		scEWMA:     scEWMA,
 		// Start at a random index, as the same RR balancer rebuilds a new
 		// picker when SubConn states change, and we don't want to apply excess
 		// load to the first server in the list.
@@ -58,11 +61,11 @@ type mrtPicker struct {
 
 	scToAddr map[balancer.SubConn]resolver.Address
 
-	// subConns response cost time
+	// subConns response cost time (priority queue based on EWMA)
 	scCostTime *priorityqueue.PriorityQueue
 
-	// last ten times response cost time
-	scRecords [][]int64
+	// EWMA (Exponentially Weighted Moving Average) for each SubConn
+	scEWMA []float64
 
 	mu   sync.Mutex
 	next int
@@ -71,57 +74,38 @@ type mrtPicker struct {
 func (p *mrtPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Lock()
 	n := len(p.subConns)
-	p.mu.Unlock()
 	if n == 0 {
+		p.mu.Unlock()
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
-
-	p.mu.Lock()
-	item := p.scCostTime.Min().(*priorityqueue.Item)
+	minItem := p.scCostTime.Min()
+	if minItem == nil {
+		p.mu.Unlock()
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
+	}
+	item := minItem.(*priorityqueue.Item)
 	p.next = item.Index
-	//log.Println("next", item.Index, p.scToAddr[p.subConns[p.next]].Addr, item.Val, n, item.Addr)
 	sc := p.subConns[p.next]
-	//picked := p.scToAddr[sc]
 	p.mu.Unlock()
 
 	start := time.Now()
 	done := func(info balancer.DoneInfo) {
-		sub := time.Now().Sub(start).Microseconds()
+		latency := float64(time.Since(start).Microseconds())
 		if info.Err == nil {
 			p.mu.Lock()
-			p.scRecords[item.Index] = append(p.scRecords[item.Index][1:], sub)
-			item.Val = weightedAverage(p.scRecords[item.Index])
+			// 使用 EWMA 计算平均响应时间
+			// newEWMA = alpha * newValue + (1 - alpha) * oldEWMA
+			if p.scEWMA[item.Index] == 0 {
+				// 首次记录，直接使用当前值
+				p.scEWMA[item.Index] = latency
+			} else {
+				p.scEWMA[item.Index] = ewmaAlpha*latency + (1-ewmaAlpha)*p.scEWMA[item.Index]
+			}
+			item.Val = int64(p.scEWMA[item.Index])
 			p.scCostTime.UpdateItem(item)
 			p.mu.Unlock()
 		}
-		//log.Println("mrtpicker done", picked.Addr, p.next, sub)
 	}
 
 	return balancer.PickResult{SubConn: sc, Done: done}, nil
-}
-
-func weightedAverage(vals []int64) int64 {
-	var (
-		min int64 = math.MaxInt64
-		max int64 = math.MinInt64
-		sum int64 = 0
-		n   int64 = int64(len(vals))
-	)
-
-	for _, val := range vals {
-		sum += val
-		if min > val {
-			min = val
-		}
-		if max < val {
-			max = val
-		}
-	}
-
-	if n <= 2 {
-		return sum / n
-	}
-
-	sum = sum - min - max
-	return sum / (n - 2)
 }
