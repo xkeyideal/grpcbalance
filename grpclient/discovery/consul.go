@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/consul/api"
+	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 )
 
 // ConsulDiscovery implements Discovery interface using Consul as service registry
@@ -219,9 +220,9 @@ func (c *ConsulDiscovery) parseServices(services []*api.ServiceEntry) []Endpoint
 		}
 
 		// Extract weight from service meta if present
-		if weightStr, ok := svc.Service.Meta["weight"]; ok {
-			if w, err := strconv.Atoi(weightStr); err == nil && w > 0 {
-				endpoint.Weight = w
+		if weightStr, ok := svc.Service.Meta[picker.WeightAttributeKey]; ok {
+			if w, err := strconv.ParseInt(weightStr, 10, 32); err == nil && w > 0 {
+				endpoint.Weight = int32(w)
 			}
 		}
 

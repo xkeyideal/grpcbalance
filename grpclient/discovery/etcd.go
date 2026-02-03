@@ -57,7 +57,7 @@ func NewEtcdDiscovery(cfg EtcdDiscoveryConfig) (*EtcdDiscovery, error) {
 	}
 
 	dialTimeout := cfg.DialTimeout
-	if dialTimeout == 0 {
+	if dialTimeout <= 0 {
 		dialTimeout = 5 * time.Second
 	}
 
@@ -71,6 +71,10 @@ func NewEtcdDiscovery(cfg EtcdDiscoveryConfig) (*EtcdDiscovery, error) {
 		etcdCfg.Password = cfg.Password
 	}
 
+	if !strings.HasSuffix(cfg.KeyPrefix, "/") {
+		cfg.KeyPrefix = cfg.KeyPrefix + "/"
+	}
+
 	client, err := clientv3.New(etcdCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create etcd client: %v", err)
@@ -80,13 +84,6 @@ func NewEtcdDiscovery(cfg EtcdDiscoveryConfig) (*EtcdDiscovery, error) {
 		client:    client,
 		keyPrefix: cfg.KeyPrefix,
 	}, nil
-}
-
-// EtcdEndpointValue is the JSON structure stored in etcd for each endpoint
-type EtcdEndpointValue struct {
-	Addr     string            `json:"addr"`
-	Weight   int               `json:"weight,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // Watch implements Discovery interface
@@ -237,16 +234,8 @@ func (e *EtcdDiscovery) GetEndpoints(ctx context.Context) ([]Endpoint, error) {
 
 	endpoints := make([]Endpoint, 0, len(resp.Kvs))
 	for _, kv := range resp.Kvs {
-		var val EtcdEndpointValue
+		var val Endpoint
 		if err := json.Unmarshal(kv.Value, &val); err != nil {
-			// Try to parse as plain address
-			addr := strings.TrimSpace(string(kv.Value))
-			if addr != "" {
-				endpoints = append(endpoints, Endpoint{
-					Addr:   addr,
-					Weight: 1,
-				})
-			}
 			continue
 		}
 
@@ -254,16 +243,11 @@ func (e *EtcdDiscovery) GetEndpoints(ctx context.Context) ([]Endpoint, error) {
 			continue
 		}
 
-		weight := val.Weight
-		if weight <= 0 {
-			weight = 1
+		if val.Weight <= 0 {
+			val.Weight = 1
 		}
 
-		endpoints = append(endpoints, Endpoint{
-			Addr:     val.Addr,
-			Weight:   weight,
-			Metadata: val.Metadata,
-		})
+		endpoints = append(endpoints, val)
 	}
 
 	return endpoints, nil
@@ -279,13 +263,7 @@ func (e *EtcdDiscovery) Close() error {
 func (e *EtcdDiscovery) Register(ctx context.Context, endpoint Endpoint, ttl int64) error {
 	key := e.keyPrefix + endpoint.Addr
 
-	val := EtcdEndpointValue{
-		Addr:     endpoint.Addr,
-		Weight:   endpoint.Weight,
-		Metadata: endpoint.Metadata,
-	}
-
-	data, err := json.Marshal(val)
+	data, err := json.Marshal(endpoint)
 	if err != nil {
 		return err
 	}

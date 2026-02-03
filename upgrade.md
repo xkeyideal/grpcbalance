@@ -266,6 +266,18 @@ type Discovery interface {
 }
 ```
 
+**Discovery 存储结构**:
+```go
+type Endpoint struct {
+	// Addr is the address of the endpoint (e.g., "192.168.1.1:8080")
+	Addr string `json:"addr"`
+	// Weight is the weight of the endpoint for weighted load balancing
+	Weight int32 `json:"weight,omitempty"`
+	// Metadata contains additional endpoint metadata
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+```
+
 **使用方式**:
 ```go
 import (
