@@ -221,6 +221,7 @@ func (p *PollingDiscovery) Close() error {
 
 // StaticDiscovery is a simple discovery implementation with static endpoints
 type StaticDiscovery struct {
+	mu        sync.RWMutex
 	endpoints []Endpoint
 }
 
@@ -235,13 +236,16 @@ func NewStaticDiscovery(addrs []string) *StaticDiscovery {
 
 // NewStaticDiscoveryWithEndpoints creates a new StaticDiscovery with full Endpoint objects
 func NewStaticDiscoveryWithEndpoints(endpoints []Endpoint) *StaticDiscovery {
-	return &StaticDiscovery{endpoints: endpoints}
+	return &StaticDiscovery{endpoints: cloneEndpoints(endpoints)}
 }
 
 // Watch implements Discovery interface - static discovery doesn't support watching
 func (s *StaticDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 	ch := make(chan Event, 1)
-	ch <- Event{Type: EventTypeUpdate, Endpoints: s.endpoints}
+	s.mu.RLock()
+	snap := cloneEndpoints(s.endpoints)
+	s.mu.RUnlock()
+	ch <- Event{Type: EventTypeUpdate, Endpoints: snap}
 	// Keep channel open but don't send more events
 	go func() {
 		<-ctx.Done()
@@ -252,7 +256,9 @@ func (s *StaticDiscovery) Watch(ctx context.Context) (<-chan Event, error) {
 
 // GetEndpoints implements Discovery interface
 func (s *StaticDiscovery) GetEndpoints(ctx context.Context) ([]Endpoint, error) {
-	return s.endpoints, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneEndpoints(s.endpoints), nil
 }
 
 // Close implements Discovery interface
@@ -262,7 +268,28 @@ func (s *StaticDiscovery) Close() error {
 
 // UpdateEndpoints allows updating endpoints in StaticDiscovery (for testing)
 func (s *StaticDiscovery) UpdateEndpoints(endpoints []Endpoint) {
-	s.endpoints = endpoints
+	s.mu.Lock()
+	s.endpoints = cloneEndpoints(endpoints)
+	s.mu.Unlock()
+}
+
+func cloneEndpoints(endpoints []Endpoint) []Endpoint {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	out := make([]Endpoint, len(endpoints))
+	copy(out, endpoints)
+	for i := range out {
+		if out[i].Metadata == nil {
+			continue
+		}
+		m2 := make(map[string]string, len(out[i].Metadata))
+		for k, v := range out[i].Metadata {
+			m2[k] = v
+		}
+		out[i].Metadata = m2
+	}
+	return out
 }
 
 // EndpointToAttrs converts discovery.Endpoint to attributes.Attributes
@@ -270,6 +297,10 @@ func EndpointToAttrs(ep Endpoint) *attributes.Attributes {
 	// Use int32 for weight to match picker expectations
 	attrs := attributes.New(picker.WeightAttributeKey, int32(ep.Weight))
 	for k, v := range ep.Metadata {
+		// Prevent overriding reserved key with a string value.
+		if k == picker.WeightAttributeKey {
+			continue
+		}
 		attrs = attrs.WithValue(k, v)
 	}
 	return attrs

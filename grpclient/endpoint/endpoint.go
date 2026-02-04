@@ -15,7 +15,6 @@
 package endpoint
 
 import (
-	"fmt"
 	"net"
 	"net/url"
 	"path"
@@ -45,14 +44,14 @@ func extractHostFromPath(pathStr string) string {
 	return extractHostFromHostPort(path.Base(pathStr))
 }
 
-//mustSplit2 returns the values from strings.SplitN(s, sep, 2).
-//If sep is not found, it returns ("", "", false) instead.
-func mustSplit2(s, sep string) (string, string) {
+// split2 returns the values from strings.SplitN(s, sep, 2).
+// If sep is not found, ok will be false.
+func split2(s, sep string) (left, right string, ok bool) {
 	spl := strings.SplitN(s, sep, 2)
 	if len(spl) < 2 {
-		panic(fmt.Errorf("Token '%v' expected to have separator sep: `%v`", s, sep))
+		return "", "", false
 	}
-	return spl[0], spl[1]
+	return spl[0], spl[1], true
 }
 
 func schemeToCredsRequirement(schema string) CredsRequirement {
@@ -81,11 +80,12 @@ func schemeToCredsRequirement(schema string) CredsRequirement {
 // The main differences:
 //   - etcd supports unixs & https names as opposed to unix & http to
 //     distinguish need to configure certificates.
-//  -  etcd support http(s) names as opposed to tcp supported by grpc/dial method.
-//  -  etcd supports unix(s)://local-file naming schema
+//   - etcd support http(s) names as opposed to tcp supported by grpc/dial method.
+//   - etcd supports unix(s)://local-file naming schema
 //     (as opposed to unix:local-file canonical name used by grpc for current dir files).
-//  - Within the unix(s) schemas, the last segment (filename) without 'port' (content after colon)
-//    is considered serverName - to allow local testing of cert-protected communication.
+//   - Within the unix(s) schemas, the last segment (filename) without 'port' (content after colon)
+//     is considered serverName - to allow local testing of cert-protected communication.
+//
 // See more:
 //   - https://github.com/grpc/grpc-go/blob/26c143bd5f59344a4b8a1e491e0f5e18aa97abc7/internal/grpcutil/target.go#L47
 //   - https://golang.org/pkg/net/#Dial
@@ -94,15 +94,24 @@ func translateEndpoint(ep string) (addr string, serverName string, requireCreds 
 	if strings.HasPrefix(ep, "unix:") || strings.HasPrefix(ep, "unixs:") {
 		if strings.HasPrefix(ep, "unix:///") || strings.HasPrefix(ep, "unixs:///") {
 			// absolute path case
-			schema, absolutePath := mustSplit2(ep, "://")
+			schema, absolutePath, ok := split2(ep, "://")
+			if !ok {
+				return ep, extractHostFromHostPort(ep), CREDS_OPTIONAL
+			}
 			return "unix://" + absolutePath, extractHostFromPath(absolutePath), schemeToCredsRequirement(schema)
 		}
 		if strings.HasPrefix(ep, "unix://") || strings.HasPrefix(ep, "unixs://") {
 			// legacy etcd local path
-			schema, localPath := mustSplit2(ep, "://")
+			schema, localPath, ok := split2(ep, "://")
+			if !ok {
+				return ep, extractHostFromHostPort(ep), CREDS_OPTIONAL
+			}
 			return "unix:" + localPath, extractHostFromPath(localPath), schemeToCredsRequirement(schema)
 		}
-		schema, localPath := mustSplit2(ep, ":")
+		schema, localPath, ok := split2(ep, ":")
+		if !ok {
+			return ep, extractHostFromHostPort(ep), CREDS_OPTIONAL
+		}
 		return "unix:" + localPath, extractHostFromPath(localPath), schemeToCredsRequirement(schema)
 	}
 

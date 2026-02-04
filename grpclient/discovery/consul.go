@@ -228,6 +228,9 @@ func (c *ConsulDiscovery) parseServices(services []*api.ServiceEntry) []Endpoint
 
 		// Copy service meta to endpoint metadata
 		for k, v := range svc.Service.Meta {
+			if k == picker.WeightAttributeKey {
+				continue
+			}
 			endpoint.Metadata[k] = v
 		}
 

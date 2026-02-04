@@ -158,12 +158,20 @@ func (c *Client) dial(dopts ...grpc.DialOption) (*grpc.ClientConn, error) {
 		ctx, cancel := context.WithTimeout(c.ctx, c.cfg.DialTimeout)
 		defer cancel()
 		conn.Connect()
-		if !conn.WaitForStateChange(ctx, connectivity.Idle) {
-			// Connection attempt timed out or failed
+		for {
 			state := conn.GetState()
-			if state != connectivity.Ready {
+			if state == connectivity.Ready {
+				break
+			}
+			if state == connectivity.Shutdown {
 				conn.Close()
-				return nil, fmt.Errorf("connection timeout: state=%s", state)
+				return nil, fmt.Errorf("connection shutdown while dialing")
+			}
+			if !conn.WaitForStateChange(ctx, state) {
+				// Timed out.
+				finalState := conn.GetState()
+				conn.Close()
+				return nil, fmt.Errorf("connection timeout: state=%s", finalState)
 			}
 		}
 	}

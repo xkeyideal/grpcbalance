@@ -50,7 +50,10 @@ func NewCustomizeResolver(endpoints []string, attributes map[string]*attributes.
 		endpoints:  endpoints,
 		attributes: attributes,
 	}
-	resolver.Register(dr)
+	// NOTE: Do NOT call resolver.Register here.
+	// grpc-go's resolver registry is intended to be mutated only at init time and
+	// is not thread-safe. This resolver is expected to be passed via
+	// grpc.WithResolvers(...), which makes global registration unnecessary.
 	return dr
 }
 
