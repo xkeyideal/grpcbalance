@@ -165,20 +165,3 @@ func concurrentGracefulSwitchExample() {
 	log.Println("  - 新请求自动使用新的 Picker")
 	log.Println("  - Inflight 计数准确追踪请求状态")
 }
-
-// GracefulPickerBuilder 使用示例
-func gracefulPickerBuilderExample() {
-	log.Println("=== GracefulPickerBuilder 使用示例 ===")
-
-	// 包装一个现有的 PickerBuilder
-	innerBuilder := &picker.RRPickerBuilder{}
-	gracefulBuilder := picker.NewGracefulPickerBuilder(innerBuilder, 5*time.Second)
-
-	log.Println("GracefulPickerBuilder 可以包装任何 PickerBuilder:")
-	log.Println("  - RoundRobin")
-	log.Println("  - WeightedRoundRobin")
-	log.Println("  - P2C")
-	log.Println("  - 等等...")
-
-	_ = gracefulBuilder // 实际使用时传递给 balancer
-}

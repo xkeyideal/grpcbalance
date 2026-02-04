@@ -16,10 +16,6 @@ import (
 	pb "github.com/xkeyideal/grpcbalance/examples/proto/echo"
 )
 
-var (
-	addrs = []string{":50051", ":50052", ":50053", ":50054"}
-)
-
 type ecServer struct {
 	pb.UnimplementedEchoServer
 	addr string
@@ -87,6 +83,7 @@ func startServer(addr string) {
 }
 
 func main() {
+	// suggestion the port must in []string{":50051", ":50052", ":50053", ":50054"}
 	if len(os.Args) <= 1 {
 		log.Fatal("input arg $1 port")
 	}

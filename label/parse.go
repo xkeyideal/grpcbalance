@@ -612,7 +612,7 @@ func SelectorFromSet(ls labels) Selector {
 // nil and empty Sets are considered equivalent to Everything().
 // The labels is validated client-side, which allows to catch errors early.
 func ValidatedSelectorFromSet(ls labels) (Selector, error) {
-	if ls == nil || len(ls) == 0 {
+	if len(ls) == 0 {
 		return internalSelector{}, nil
 	}
 	requirements := make([]Requirement, 0, len(ls))
@@ -632,7 +632,7 @@ func ValidatedSelectorFromSet(ls labels) (Selector, error) {
 // A nil and empty Sets are considered equivalent to Everything().
 // It assumes that labels is already validated and doesn't do any
 func SelectorFromValidatedSet(ls labels) Selector {
-	if ls == nil || len(ls) == 0 {
+	if len(ls) == 0 {
 		return internalSelector{}
 	}
 	requirements := make([]Requirement, 0, len(ls))

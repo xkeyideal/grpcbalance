@@ -191,7 +191,7 @@ func (ls labels) merge(labels labels) labels {
 
 func (ls labels) Equal(lb Labels) bool {
 	if lb == nil {
-		return ls == nil || len(ls) == 0
+		return len(ls) == 0
 	}
 	if lb1, ok := lb.(labels); ok {
 		return Equal(ls, lb1)

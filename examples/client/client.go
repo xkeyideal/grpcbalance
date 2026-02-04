@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-var addrs = []string{"10.181.22.31:50051", "10.181.22.31:50052"}
+var addrs = []string{"127.0.0.1:50051", "127.0.0.1:50052"}
 
 func callUnaryEcho(c pb.EchoClient, message string) {
 	pctx, cancel := context.WithCancel(context.Background())
@@ -100,6 +100,6 @@ func main() {
 		time.Sleep(3 * time.Second)
 	}
 
-	// makeRPCs(grpclient.ActiveConnection(), 100)
+	makeRPCs(grpclient.ActiveConnection(), 10)
 	serverStream(grpclient.ActiveConnection())
 }
