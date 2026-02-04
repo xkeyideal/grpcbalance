@@ -41,10 +41,10 @@ func NodeFiltersFromContext(ctx context.Context) []NodeFilter {
 }
 
 // VersionFilterKey 用于在 Address.Attributes 中存储版本信息的 key
-const VersionFilterKey = "version"
+const VersionFilterKey = "_x_grpc_version_"
 
 // MetadataFilterKey 用于在 Address.Attributes 中存储元数据的 key
-const MetadataFilterKey = "metadata"
+const MetadataFilterKey = "_x_grpc_metadata_"
 
 // LabelSelectorFilter creates a NodeFilter that evaluates a label selector
 // against SubConn's resolver.Address.Attributes.
@@ -58,8 +58,8 @@ const MetadataFilterKey = "metadata"
 // It reads attribute values by key (string key). Supported attribute value types:
 // string, []string, fmt.Stringer, and common integer types (converted to decimal string).
 //
-// For backward compatibility, if a key is not found directly it will also try
-// to read from `MetadataFilterKey` ("metadata") when it is a map[string]string.
+// If a key is not found directly, it will also try to read from the reserved
+// metadata map stored at `MetadataFilterKey` when it is a map[string]string.
 func LabelSelectorFilter(selector string) (NodeFilter, error) {
 	sel, err := label.ParseSelector(selector)
 	if err != nil {
@@ -172,7 +172,7 @@ func (a *attrsLabels) getSet(key string) (label.Set, bool) {
 			return set, true
 		}
 	}
-	// 2) fallback to legacy metadata map stored at MetadataFilterKey
+	// 2) fallback to metadata map stored at MetadataFilterKey
 	if key != MetadataFilterKey {
 		if mm, ok := a.attrs.Value(MetadataFilterKey).(map[string]string); ok {
 			if mv, ok := mm[key]; ok {

@@ -175,6 +175,7 @@ cfg := &grpclient.Config{
 **支持的过滤器**:
 | 过滤器 | 说明 |
 |--------|------|
+| `LabelSelectorFilter(selector)` | **推荐**：使用 label selector 语法按 attributes/metadata 做灵活过滤（AND/OR、in/notin、wildcard、semver 等） |
 | `VersionFilter(version)` | 精确版本匹配 |
 | `VersionPrefixFilter(prefix)` | 版本前缀匹配 |
 | `MetadataFilter(key, value)` | 元数据 key-value 匹配 |
@@ -187,13 +188,21 @@ cfg := &grpclient.Config{
 ```go
 import "github.com/xkeyideal/grpcbalance/grpclient/picker"
 
-// 只请求 v2.x 版本的生产环境节点
-ctx := picker.WithNodeFilter(context.Background(),
-    picker.VersionPrefixFilter("v2."),
-    picker.MetadataFilter("env", "prod"),
-)
+// 推荐：用一条 selector 表达规则（更适合灰度/多机房/多租户/版本治理等）
+f, err := picker.LabelSelectorFilter("env=prod, region in (cn-north,cn-east), v@^1.1.0 || >=2")
+if err != nil {
+    return
+}
+ctx := picker.WithNodeFilter(context.Background(), f)
 resp, err := client.SomeRPC(ctx, req)
+_ = resp
+_ = err
 ```
+
+说明：selector 语法与操作符详见 [label/README.md](label/README.md)。
+
+注意：`picker.MetadataFilterKey`（当前值为 `_x_grpc_metadata_`）是内部保留 key，用于在 `resolver.Address.Attributes` 中保存“整张 metadata map”。
+不要在服务发现返回的 metadata（例如 `discovery.Endpoint.Metadata`）里使用同名 key；该 key 会被忽略以避免覆盖内部结构。
 
 ### 4. 子集选择功能
 

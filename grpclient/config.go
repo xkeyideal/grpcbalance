@@ -116,7 +116,10 @@ type Config struct {
 	CircuitBreakerConfig *circuitbreaker.Config
 
 	// EnableNodeFilter enables node filtering support for load balancing
-	// When enabled, you can use picker.WithNodeFilter() to filter nodes by version, metadata, address, etc.
+	// When enabled, you can use picker.WithNodeFilter() to filter nodes by version, node metadata (resolver.Address.Attributes), address, etc.
+	// Note: "metadata" here refers to service-discovery / registry metadata injected into Address.Attributes,
+	// not gRPC header metadata.
+	// Also note: picker.MetadataFilterKey (currently "_x_grpc_metadata_") is a reserved internal key and must not be used by user metadata.
 	// Note: This adds a small performance overhead, so only enable when needed
 	EnableNodeFilter bool
 

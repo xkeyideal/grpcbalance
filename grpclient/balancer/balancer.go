@@ -95,28 +95,32 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 		aNoAttrs.Attributes = nil
 
 		addrsSet.Set(aNoAttrs, nil)
-		if _, ok := b.subConns.Get(aNoAttrs); !ok {
-			// a is a new address (not existing in b.subConns).
-			// When creating SubConn, the original address with attributes is
-			// passed through. So that connection configurations in attributes
-			// (like creds) will be used.
-			var sc balancer.SubConn
-			opts := balancer.NewSubConnOptions{
-				HealthCheckEnabled: b.config.HealthCheck,
-				StateListener:      func(scs balancer.SubConnState) { b.updateSubConnState(sc, scs) },
-			}
-
-			sc, err := b.cc.NewSubConn([]resolver.Address{a}, opts)
-			if err != nil {
-				continue
-			}
-
-			b.subConns.Set(aNoAttrs, sc)
-			b.scStates[sc] = connectivity.Idle
-			b.scAddrs[sc] = a // Store the original address with attributes for picker
-			b.csEvltr.RecordTransition(connectivity.Shutdown, connectivity.Idle)
-			sc.Connect()
+		if sc, ok := b.subConns.Get(aNoAttrs); ok {
+			// Address is the same (after stripping attributes) but attributes may have
+			// changed. Refresh the original address used by picker/filter.
+			b.scAddrs[sc] = a
+			continue
 		}
+		// a is a new address (not existing in b.subConns).
+		// When creating SubConn, the original address with attributes is
+		// passed through. So that connection configurations in attributes
+		// (like creds) will be used.
+		var sc balancer.SubConn
+		opts := balancer.NewSubConnOptions{
+			HealthCheckEnabled: b.config.HealthCheck,
+			StateListener:      func(scs balancer.SubConnState) { b.updateSubConnState(sc, scs) },
+		}
+
+		sc, err := b.cc.NewSubConn([]resolver.Address{a}, opts)
+		if err != nil {
+			continue
+		}
+
+		b.subConns.Set(aNoAttrs, sc)
+		b.scStates[sc] = connectivity.Idle
+		b.scAddrs[sc] = a // Store the original address with attributes for picker
+		b.csEvltr.RecordTransition(connectivity.Shutdown, connectivity.Idle)
+		sc.Connect()
 	}
 
 	for _, a := range b.subConns.Keys() {

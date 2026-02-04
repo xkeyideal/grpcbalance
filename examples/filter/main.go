@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	pb "github.com/xkeyideal/grpcbalance/examples/proto/echo"
 	"github.com/xkeyideal/grpcbalance/grpclient"
 	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
+	"github.com/xkeyideal/grpcbalance/grpclient/discovery"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/attributes"
@@ -51,6 +53,295 @@ func main() {
 	// 示例6: Label Selector 过滤（基于 attributes）
 	log.Println("\n--- 示例6: Label Selector 过滤（基于 attributes） ---")
 	labelSelectorFilterExample()
+
+	// 示例7: Label Selector 过滤（基于 discovery metadata）
+	log.Println("\n--- 示例7: Label Selector 过滤（基于 discovery metadata） ---")
+	discoveryMetadataLabelSelectorExample()
+}
+
+// demoDiscovery 是一个示例用 discovery，实现了 Watch 推送更新。
+// 用于演示：discovery metadata 变化 -> resolver.Address.Attributes 更新 -> selector 过滤结果变化。
+type demoDiscovery struct {
+	mu        sync.RWMutex
+	endpoints []discovery.Endpoint
+	watchers  map[*demoWatcher]struct{}
+	closed    bool
+}
+
+type demoWatcher struct {
+	ch     chan discovery.Event
+	closed bool
+}
+
+func newDemoDiscovery(endpoints []discovery.Endpoint) *demoDiscovery {
+	return &demoDiscovery{
+		endpoints: cloneDiscoveryEndpoints(endpoints),
+		watchers:  make(map[*demoWatcher]struct{}),
+	}
+}
+
+func (d *demoDiscovery) Watch(ctx context.Context) (<-chan discovery.Event, error) {
+	w := &demoWatcher{ch: make(chan discovery.Event, 8)}
+
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		close(w.ch)
+		return w.ch, nil
+	}
+	d.watchers[w] = struct{}{}
+	snap := cloneDiscoveryEndpoints(d.endpoints)
+	d.mu.Unlock()
+
+	// Initial snapshot
+	w.ch <- discovery.Event{Type: discovery.EventTypeUpdate, Endpoints: snap}
+
+	go func() {
+		<-ctx.Done()
+		d.mu.Lock()
+		d.closeWatcherLocked(w)
+		d.mu.Unlock()
+	}()
+
+	return w.ch, nil
+}
+
+func (d *demoDiscovery) GetEndpoints(ctx context.Context) ([]discovery.Endpoint, error) {
+	_ = ctx
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return cloneDiscoveryEndpoints(d.endpoints), nil
+}
+
+func (d *demoDiscovery) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return nil
+	}
+	d.closed = true
+	for w := range d.watchers {
+		d.closeWatcherLocked(w)
+	}
+	return nil
+}
+
+func (d *demoDiscovery) closeWatcherLocked(w *demoWatcher) {
+	if w == nil || w.closed {
+		return
+	}
+	delete(d.watchers, w)
+	close(w.ch)
+	w.closed = true
+}
+
+// UpdateEndpoints 推送 endpoints 更新事件给所有 watcher。
+func (d *demoDiscovery) UpdateEndpoints(endpoints []discovery.Endpoint) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return
+	}
+	d.endpoints = cloneDiscoveryEndpoints(endpoints)
+	for w := range d.watchers {
+		if w.closed {
+			continue
+		}
+		snap := cloneDiscoveryEndpoints(d.endpoints)
+		select {
+		case w.ch <- discovery.Event{Type: discovery.EventTypeUpdate, Endpoints: snap}:
+		default:
+			// best-effort: avoid blocking example code
+		}
+	}
+}
+
+func cloneDiscoveryEndpoints(endpoints []discovery.Endpoint) []discovery.Endpoint {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	out := make([]discovery.Endpoint, len(endpoints))
+	copy(out, endpoints)
+	for i := range out {
+		if out[i].Metadata == nil {
+			continue
+		}
+		m2 := make(map[string]string, len(out[i].Metadata))
+		for k, v := range out[i].Metadata {
+			m2[k] = v
+		}
+		out[i].Metadata = m2
+	}
+	return out
+}
+
+// discoveryMetadataLabelSelectorExample 展示 selector 如何“真正接到 discovery 的 metadata”。
+//
+// 关键点：
+//  1. discovery.Endpoint.Metadata 会在 EndpointToAttrs 中被注入到 Address.Attributes：
+//     - Attributes[picker.MetadataFilterKey] = map[string]string{...}
+//     - 同时每个 metadata key 也会作为独立 attribute 写入（便于 selector 直读）
+//  2. picker.LabelSelectorFilter 会优先按 key 直读 attributes；缺失时回退读 metadata map。
+func discoveryMetadataLabelSelectorExample() {
+	eps := []discovery.Endpoint{
+		{
+			Addr:   addrs[0],
+			Weight: 1,
+			Metadata: map[string]string{
+				"env":       "prod",
+				"region":    "cn-north",
+				"lane":      "stable",
+				"system.ip": "127.0.0.1",
+				"system.id": "node-50051",
+			},
+		},
+		{
+			Addr:   addrs[1],
+			Weight: 1,
+			Metadata: map[string]string{
+				"env":       "prod",
+				"region":    "cn-north",
+				"lane":      "canary",
+				"system.ip": "127.0.0.1",
+				"system.id": "node-50052",
+			},
+		},
+		{
+			Addr:   addrs[2],
+			Weight: 1,
+			Metadata: map[string]string{
+				"env":       "staging",
+				"region":    "cn-east",
+				"lane":      "stable",
+				"system.ip": "127.0.0.1",
+				"system.id": "node-50053",
+			},
+		},
+	}
+
+	d := newDemoDiscovery(eps)
+
+	cfg := &grpclient.Config{
+		BalanceName:           balancer.RoundRobinBalanceName,
+		EnableNodeFilter:      true,
+		Discovery:             d,
+		DiscoveryPollInterval: 0,
+
+		DialTimeout:          10 * time.Second,
+		DialKeepAliveTime:    10 * time.Second,
+		DialKeepAliveTimeout: 2 * time.Second,
+		PermitWithoutStream:  true,
+	}
+
+	client, err := grpclient.NewClient(cfg)
+	if err != nil {
+		log.Printf("创建客户端失败: %v", err)
+		return
+	}
+	defer client.Close()
+
+	cc := client.ActiveConnection()
+	echoClient := pb.NewEchoClient(cc)
+
+	log.Println("discovery endpoints metadata:")
+	cur, _ := d.GetEndpoints(context.Background())
+	for _, ep := range cur {
+		log.Printf("  %s: env=%s region=%s lane=%s id=%s",
+			ep.Addr, ep.Metadata["env"], ep.Metadata["region"], ep.Metadata["lane"], ep.Metadata["system.id"],
+		)
+	}
+
+	dryRun := func(selector string) ([]string, picker.NodeFilter, bool) {
+		f, err := picker.LabelSelectorFilter(selector)
+		if err != nil {
+			log.Printf("selector 解析失败 %q: %v", selector, err)
+			return nil, nil, false
+		}
+		var expected []string
+		snap, _ := d.GetEndpoints(context.Background())
+		for _, ep := range snap {
+			attrs := discovery.EndpointToAttrs(ep)
+			info := picker.SubConnInfo{Address: resolver.Address{Addr: ep.Addr, Attributes: attrs}}
+			if !f(info) {
+				continue
+			}
+			// ep.Addr is "host:port" in this example
+			port := ""
+			if parts := strings.Split(ep.Addr, ":"); len(parts) > 1 {
+				port = parts[len(parts)-1]
+			}
+			expected = append(expected, port)
+		}
+		return expected, f, true
+	}
+
+	run := func(scene, selector string) {
+		log.Printf("\n%s\nselector: %s", scene, selector)
+		expected, f, ok := dryRun(selector)
+		if !ok {
+			return
+		}
+		log.Printf("dry-run 命中端口: %v", expected)
+		ctx := picker.WithNodeFilter(context.Background(), f)
+		if len(expected) == 0 {
+			// 预期无可用节点：用短超时做一次真实 RPC，验证会快速失败（而不是卡住 6*5s）。
+			ctxShort, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+			defer cancel()
+			_, err := echoClient.UnaryEcho(ctxShort, &pb.EchoRequest{Message: "discovery selector 请求"})
+			if err == nil {
+				log.Printf("❌ 预期无可用 SubConn，但 RPC 居然成功")
+			} else {
+				log.Printf("✅ 预期无可用 SubConn：RPC 失败符合预期 (%v)", err)
+			}
+			verifyFilterResult([]string{""}, expected, "Discovery+LabelSelectorFilter("+selector+")")
+			return
+		}
+		var picked []string
+		for i := 0; i < 6; i++ {
+			picked = append(picked, callEchoAndExtractPort(echoClient, ctx, "discovery selector 请求"))
+		}
+		verifyFilterResult(picked, expected, "Discovery+LabelSelectorFilter("+selector+")")
+	}
+
+	// 场景1：生产环境 + 同 Region
+	run("业务场景1：prod 同城（env=prod, region=cn-north）", "env=prod, region=cn-north")
+
+	// 场景2：稳定流量（排除 canary）
+	run("业务场景2：稳定流量（lane!=canary）", "env=prod, lane!=canary")
+
+	// 场景3：灰度放量（只走 canary）
+	run("业务场景3：灰度放量（lane=canary）", "env=prod, lane=canary")
+
+	// --- 动态更新演示 ---
+	log.Println("\n--- 动态更新：把 50052 从 canary 切回 stable ---")
+	updated := cloneDiscoveryEndpoints(cur)
+	for i := range updated {
+		if updated[i].Addr == addrs[1] {
+			updated[i].Metadata["lane"] = "stable"
+		}
+	}
+	d.UpdateEndpoints(updated)
+	// 等待 resolver/picker 更新生效（示例用途，生产环境通常由 watch 事件驱动完成）
+	time.Sleep(300 * time.Millisecond)
+	cur, _ = d.GetEndpoints(context.Background())
+
+	// 更新后：lane=canary 应该无命中；lane!=canary 应该命中 50051 与 50052
+	run("更新后：灰度放量（lane=canary，应无命中）", "env=prod, lane=canary")
+	run("更新后：稳定流量（lane!=canary，应命中 50051/50052）", "env=prod, lane!=canary")
+
+	log.Println("\n--- 动态更新：把 50053 从 staging 提升为 prod ---")
+	updated2 := cloneDiscoveryEndpoints(cur)
+	for i := range updated2 {
+		if updated2[i].Addr == addrs[2] {
+			updated2[i].Metadata["env"] = "prod"
+		}
+	}
+	d.UpdateEndpoints(updated2)
+	time.Sleep(300 * time.Millisecond)
+
+	// 更新后：prod 同城仍命中 50051/50052；新增可以用 region=cn-east 命中 50053
+	run("更新后：prod 同城（env=prod, region=cn-north）", "env=prod, region=cn-north")
+	run("更新后：跨区容灾（env=prod, region=cn-east，应命中 50053）", "env=prod, region=cn-east")
 }
 
 // labelSelectorFilterExample 展示用 label selector 过滤节点。
@@ -58,7 +349,7 @@ func main() {
 // selector 语法由 label 包提供（支持：=,!=,in/notin,exists/!exists,pattern(~=),semver(@),数字比较(>/<) 等）。
 // 数据来源来自 resolver.Address.Attributes：
 //  1. 直接 key/value（推荐，与 discovery.EndpointToAttrs 注入方式一致）
-//  2. 兼容 metadata map：Attributes["metadata"] 为 map[string]string 时可回退读取
+//  2. metadata map：Attributes[picker.MetadataFilterKey] 为 map[string]string 时可回退读取
 func labelSelectorFilterExample() {
 	attrs := make(map[string]*attributes.Attributes)
 
@@ -86,7 +377,7 @@ func labelSelectorFilterExample() {
 			"system.port": ports[i],
 			"v":           versions[i],
 		}
-		// 演示 metadata-map-only 的兼容读取：legacy.only 只放在 metadata 里，不放在直接 attributes 里。
+		// 演示 metadata-map-only 的读取：legacy.only 只放在 metadata map 里，不放在直接 attributes 里。
 		if i == 1 {
 			md["legacy.only"] = "yes"
 		}
@@ -102,7 +393,7 @@ func labelSelectorFilterExample() {
 			WithValue("system.id", "node-"+ports[i]).
 			WithValue("system.port", ports[i]).
 			WithValue("v", versions[i]).
-			// 放一份 metadata map，便于演示兼容老写法（selector 也能读到）
+			// 放一份 metadata map，便于演示 selector 回退读取
 			WithValue(picker.MetadataFilterKey, md)
 	}
 
@@ -220,8 +511,8 @@ func labelSelectorFilterExample() {
 	// 业务场景 8：问题定位（精确打到某个 IP 的节点）
 	run("业务场景8：问题定位（system.ip=10.0.1.11）", "system.ip=10.0.1.11")
 
-	// 业务场景 9：老系统 metadata map 兼容（仅 metadata 里有 legacy.only）
-	run("业务场景9：兼容老 metadata（legacy.only=yes）", "legacy.only=yes")
+	// 业务场景 9：metadata map-only（仅 metadata map 里有 legacy.only）
+	run("业务场景9：metadata map-only（legacy.only=yes）", "legacy.only=yes")
 
 	// 业务场景 10：就近优先 + 无命中回退
 	runWithFallback(

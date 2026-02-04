@@ -14,7 +14,8 @@ func TestEndpointToAttrs_WeightKeyNotOverriddenByMetadata(t *testing.T) {
 		Addr:   "127.0.0.1:1",
 		Weight: 7,
 		Metadata: map[string]string{
-			picker.WeightAttributeKey: "999", // should be ignored
+			picker.WeightAttributeKey: "999",  // should be ignored
+			picker.MetadataFilterKey:  "oops", // should be ignored
 			"k":                       "v",
 		},
 	}
@@ -24,6 +25,39 @@ func TestEndpointToAttrs_WeightKeyNotOverriddenByMetadata(t *testing.T) {
 	}
 	if got := attrs.Value("k"); got != "v" {
 		t.Fatalf("metadata attr=%T(%v), want %q", got, got, "v")
+	}
+	// Metadata map should also be attached for metadata-based filters.
+	mm, ok := attrs.Value(picker.MetadataFilterKey).(map[string]string)
+	if !ok {
+		t.Fatalf("%s attr type=%T, want map[string]string", picker.MetadataFilterKey, attrs.Value(picker.MetadataFilterKey))
+	}
+	if got := mm["k"]; got != "v" {
+		t.Fatalf("%s[k]=%q, want %q", picker.MetadataFilterKey, got, "v")
+	}
+	if _, exists := mm[picker.WeightAttributeKey]; exists {
+		t.Fatalf("%s should not include reserved key %q", picker.MetadataFilterKey, picker.WeightAttributeKey)
+	}
+	if _, exists := mm[picker.MetadataFilterKey]; exists {
+		t.Fatalf("%s should not include reserved key %q", picker.MetadataFilterKey, picker.MetadataFilterKey)
+	}
+}
+
+func TestEndpointToAttrs_MetadataMapIsIsolated(t *testing.T) {
+	ep := Endpoint{
+		Addr:   "127.0.0.1:1",
+		Weight: 1,
+		Metadata: map[string]string{
+			"system.ip": "127.0.0.1",
+		},
+	}
+	attrs := EndpointToAttrs(ep)
+	mm, ok := attrs.Value(picker.MetadataFilterKey).(map[string]string)
+	if !ok {
+		t.Fatalf("%s attr type=%T, want map[string]string", picker.MetadataFilterKey, attrs.Value(picker.MetadataFilterKey))
+	}
+	mm["system.ip"] = "mutated"
+	if ep.Metadata["system.ip"] != "127.0.0.1" {
+		t.Fatalf("endpoint metadata mutated: %q", ep.Metadata["system.ip"])
 	}
 }
 

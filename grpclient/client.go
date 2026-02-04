@@ -326,6 +326,11 @@ func NewClient(cfg *Config) (*Client, error) {
 		if cfg.OnEndpointsUpdate != nil {
 			cfg.OnEndpointsUpdate(discoveryEps)
 		}
+
+		// Keep cfg in sync with the resolver's initial state.
+		// This is important because dial() derives the target authority from c.Endpoints()[0].
+		client.cfg.Endpoints = endpoints
+		client.cfg.Attributes = attrs
 	}
 
 	client.resolver = resolver.NewCustomizeResolver(endpoints, attrs)

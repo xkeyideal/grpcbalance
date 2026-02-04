@@ -296,9 +296,25 @@ func cloneEndpoints(endpoints []Endpoint) []Endpoint {
 func EndpointToAttrs(ep Endpoint) *attributes.Attributes {
 	// Use int32 for weight to match picker expectations
 	attrs := attributes.New(picker.WeightAttributeKey, int32(ep.Weight))
+
+	// Attach full metadata map for filters that expect it (e.g., picker.MetadataFilter).
+	// Also keep per-key attributes below for convenience and selector matching.
+	if len(ep.Metadata) > 0 {
+		mm := make(map[string]string, len(ep.Metadata))
+		for k, v := range ep.Metadata {
+			// Prevent overriding reserved keys with user metadata.
+			if k == picker.WeightAttributeKey || k == picker.MetadataFilterKey {
+				continue
+			}
+			mm[k] = v
+		}
+		if len(mm) > 0 {
+			attrs = attrs.WithValue(picker.MetadataFilterKey, mm)
+		}
+	}
 	for k, v := range ep.Metadata {
-		// Prevent overriding reserved key with a string value.
-		if k == picker.WeightAttributeKey {
+		// Prevent overriding reserved keys with a string value.
+		if k == picker.WeightAttributeKey || k == picker.MetadataFilterKey {
 			continue
 		}
 		attrs = attrs.WithValue(k, v)

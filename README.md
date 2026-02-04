@@ -2,7 +2,7 @@
 
 The gRPC-go Require
 
-* Go 1.21+
+* Go 1.25+
 * gRPC 1.78.0+
 
 ### Version
@@ -156,11 +156,49 @@ cfg := &grpclient.Config{
 
 #### 使用节点过滤
 
+节点过滤是**按请求**选择子集节点的能力，常用于灰度/多 AZ/多机房/租户隔离等场景。
+
+注意：`picker.MetadataFilterKey`（当前值为 `_x_grpc_metadata_`）是框架内部保留 key，用于在 `resolver.Address.Attributes` 中保存“整张 metadata map”。
+请不要在你的服务发现 metadata（例如 `discovery.Endpoint.Metadata`）里使用同名 key；该 key 会被忽略以避免覆盖内部结构。
+
+支持的过滤方式（可组合使用）：
+
+- `picker.LabelSelectorFilter(selector)`（推荐）：一条 selector 表达更复杂的条件
+- `picker.VersionFilter(version)` / `picker.VersionPrefixFilter(prefix)`：按版本过滤
+- `picker.MetadataFilter(key, value)` / `picker.MetadataExistsFilter(key)`：按 metadata 过滤
+- `picker.AddressFilter(addrs...)` / `picker.ExcludeAddressFilter(addrs...)`：按地址白/黑名单
+- `picker.HealthyFilter(checker)`：按自定义健康检查过滤
+
+使用前提：配置里必须显式打开 `EnableNodeFilter`。
+
 ```go
+import (
+    "context"
 
-#### 使用 Label Selector 过滤（基于 attributes）
+    "github.com/xkeyideal/grpcbalance/grpclient"
+    "github.com/xkeyideal/grpcbalance/grpclient/balancer"
+    "github.com/xkeyideal/grpcbalance/grpclient/picker"
+)
 
-适合把服务端 metadata（例如 `system.ip=127.0.0.1`、`env=prod`）注入到 `resolver.Address.Attributes` 后，用一条 selector 表达式做更灵活的节点过滤。
+cfg := &grpclient.Config{
+    Endpoints:        addrs,
+    BalanceName:      balancer.RoundRobinBalanceName,
+    EnableNodeFilter: true,
+}
+_ = cfg
+
+// 每次 RPC 调用时，把过滤器放进 ctx
+ctx := picker.WithNodeFilter(context.Background(), picker.MetadataFilter("env", "prod"))
+_ = ctx
+```
+
+##### 推荐：使用 Label Selector 过滤
+
+当你能把服务发现/注册中心的 metadata（比如 `env=prod`、`region=cn-north`、`lane=canary`、`version=2.1.0`）注入到 `resolver.Address.Attributes` 后，用 `LabelSelectorFilter` 通常是最省心也最强的写法。
+
+约定：
+- selector 优先读取 `Attributes[key]`（例如 `env`、`region`、`lane` 等）
+- 当 `Attributes[key]` 缺失时，会回退读取 `Attributes[picker.MetadataFilterKey]` 里的 map（仅当其类型为 `map[string]string`）
 
 ```go
 import (
@@ -169,40 +207,31 @@ import (
     "github.com/xkeyideal/grpcbalance/grpclient/picker"
 )
 
-// 配置中必须启用 EnableNodeFilter
-// cfg.EnableNodeFilter = true
-
-f, err := picker.LabelSelectorFilter("env=prod, tags in (gpu), v@^1.1.0 || >=2")
+f, err := picker.LabelSelectorFilter("env=prod, lane notin (dev), v@^1.1.0 || >=2")
 if err != nil {
-    panic(err)
+    // selector 解析失败时返回 error（不建议 panic）
+    return
 }
 
 ctx := picker.WithNodeFilter(context.Background(), f)
 resp, err := client.SomeRPC(ctx, req)
+_ = resp
+_ = err
 ```
 
-说明：
+更多 selector 语法见 [label/README.md](label/README.md)。
 
-- selector 数据源优先读 `Attributes[key]`（推荐，与 `discovery.EndpointToAttrs` 的注入方式一致）
-- 同时兼容老写法：当 `Attributes["metadata"]` 为 `map[string]string` 时，也可以从里面读取 key/value
-import (
-    "github.com/xkeyideal/grpcbalance/grpclient"
-    "github.com/xkeyideal/grpcbalance/grpclient/picker"
-)
+##### 其它简单过滤器示例
 
-// 配置中启用节点过滤
-cfg := &grpclient.Config{
-    Endpoints:        addrs,
-    BalanceName:      balancer.RoundRobinBalanceName,
-    EnableNodeFilter: true, // 必须显式启用
-}
-
-// 然后在请求时过滤节点
+```go
 ctx := picker.WithNodeFilter(context.Background(),
     picker.VersionPrefixFilter("v2."),
     picker.MetadataFilter("env", "prod"),
+    picker.ExcludeAddressFilter("127.0.0.1:50052"),
 )
 resp, err := client.SomeRPC(ctx, req)
+_ = resp
+_ = err
 ```
 
 #### 使用子集选择
