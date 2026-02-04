@@ -157,6 +157,34 @@ cfg := &grpclient.Config{
 #### 使用节点过滤
 
 ```go
+
+#### 使用 Label Selector 过滤（基于 attributes）
+
+适合把服务端 metadata（例如 `system.ip=127.0.0.1`、`env=prod`）注入到 `resolver.Address.Attributes` 后，用一条 selector 表达式做更灵活的节点过滤。
+
+```go
+import (
+    "context"
+
+    "github.com/xkeyideal/grpcbalance/grpclient/picker"
+)
+
+// 配置中必须启用 EnableNodeFilter
+// cfg.EnableNodeFilter = true
+
+f, err := picker.LabelSelectorFilter("env=prod, tags in (gpu), v@^1.1.0 || >=2")
+if err != nil {
+    panic(err)
+}
+
+ctx := picker.WithNodeFilter(context.Background(), f)
+resp, err := client.SomeRPC(ctx, req)
+```
+
+说明：
+
+- selector 数据源优先读 `Attributes[key]`（推荐，与 `discovery.EndpointToAttrs` 的注入方式一致）
+- 同时兼容老写法：当 `Attributes["metadata"]` 为 `map[string]string` 时，也可以从里面读取 key/value
 import (
     "github.com/xkeyideal/grpcbalance/grpclient"
     "github.com/xkeyideal/grpcbalance/grpclient/picker"

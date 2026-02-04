@@ -2,10 +2,15 @@ package picker
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/xkeyideal/grpcbalance/label"
+
+	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/resolver"
 )
@@ -40,6 +45,197 @@ const VersionFilterKey = "version"
 
 // MetadataFilterKey 用于在 Address.Attributes 中存储元数据的 key
 const MetadataFilterKey = "metadata"
+
+// LabelSelectorFilter creates a NodeFilter that evaluates a label selector
+// against SubConn's resolver.Address.Attributes.
+//
+// Typical usage in grpcbalance filter:
+//   - selector: "system.ip=127.0.0.1" (exact match)
+//   - selector: "env in (prod,staging)" (set match)
+//   - selector: "version@^1.2.0" (semver)
+//   - selector: "id~=foo*bar?" (wildcard)
+//
+// It reads attribute values by key (string key). Supported attribute value types:
+// string, []string, fmt.Stringer, and common integer types (converted to decimal string).
+//
+// For backward compatibility, if a key is not found directly it will also try
+// to read from `MetadataFilterKey` ("metadata") when it is a map[string]string.
+func LabelSelectorFilter(selector string) (NodeFilter, error) {
+	sel, err := label.ParseSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	return func(info SubConnInfo) bool {
+		attrs := info.Address.Attributes
+		if attrs == nil {
+			// No attributes: selector can only match if it is empty (Everything()).
+			return sel.Empty()
+		}
+		return sel.Matches(newAttrsLabels(attrs))
+	}, nil
+}
+
+type attrsLabels struct {
+	attrs *attributes.Attributes
+	seen  map[string]label.Set
+}
+
+func newAttrsLabels(attrs *attributes.Attributes) label.Labels {
+	return &attrsLabels{attrs: attrs, seen: make(map[string]label.Set)}
+}
+
+func (a *attrsLabels) Has(key string) bool {
+	_, ok := a.getSet(key)
+	return ok
+}
+
+func (a *attrsLabels) Get(key string) label.Set {
+	set, _ := a.getSet(key)
+	return set
+}
+
+func (a *attrsLabels) Clone() label.Labels {
+	// Clone seen keys only; underlying attributes are immutable.
+	n := &attrsLabels{attrs: a.attrs, seen: make(map[string]label.Set, len(a.seen))}
+	for k, v := range a.seen {
+		n.seen[k] = copySet(v)
+	}
+	return n
+}
+
+func (a *attrsLabels) Merge(labels2 label.Labels) label.Labels {
+	// Best-effort merge into cached view.
+	if labels2 == nil {
+		return a
+	}
+	for _, k := range labels2.Keys() {
+		vs := labels2.Get(k)
+		if set, ok := a.seen[k]; ok {
+			set.AddSet(vs)
+		} else {
+			a.seen[k] = copySet(vs)
+		}
+	}
+	return a
+}
+
+func (a *attrsLabels) Keys() []string {
+	keys := make([]string, 0, len(a.seen))
+	for k := range a.seen {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (a *attrsLabels) ToList() []string {
+	var out []string
+	for k, vs := range a.seen {
+		for v := range vs {
+			out = append(out, k+"="+v)
+		}
+	}
+	return out
+}
+
+func (a *attrsLabels) String() string { return a.Stringify("\r\n") }
+
+func (a *attrsLabels) Stringify(sep string) string { return strings.Join(a.ToList(), sep) }
+
+func (a *attrsLabels) Equal(other label.Labels) bool {
+	if other == nil {
+		return len(a.seen) == 0
+	}
+	keys := other.Keys()
+	if len(keys) != len(a.seen) {
+		return false
+	}
+	for _, k := range keys {
+		if !other.Get(k).Equal(a.seen[k]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *attrsLabels) getSet(key string) (label.Set, bool) {
+	if set, ok := a.seen[key]; ok {
+		return set, true
+	}
+	if a.attrs == nil {
+		return nil, false
+	}
+	// 1) direct attribute value
+	if v := a.attrs.Value(key); v != nil {
+		set, ok := attrValueToSet(v)
+		if ok {
+			a.seen[key] = set
+			return set, true
+		}
+	}
+	// 2) fallback to legacy metadata map stored at MetadataFilterKey
+	if key != MetadataFilterKey {
+		if mm, ok := a.attrs.Value(MetadataFilterKey).(map[string]string); ok {
+			if mv, ok := mm[key]; ok {
+				set := make(label.Set, 1)
+				set.Add(mv)
+				a.seen[key] = set
+				return set, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func attrValueToSet(v any) (label.Set, bool) {
+	if v == nil {
+		return nil, false
+	}
+	s := make(label.Set)
+	switch vv := v.(type) {
+	case string:
+		s.Add(vv)
+		return s, true
+	case []string:
+		for _, x := range vv {
+			s.Add(x)
+		}
+		return s, true
+	case fmt.Stringer:
+		s.Add(vv.String())
+		return s, true
+	case int:
+		s.Add(strconv.FormatInt(int64(vv), 10))
+		return s, true
+	case int32:
+		s.Add(strconv.FormatInt(int64(vv), 10))
+		return s, true
+	case int64:
+		s.Add(strconv.FormatInt(vv, 10))
+		return s, true
+	case uint:
+		s.Add(strconv.FormatUint(uint64(vv), 10))
+		return s, true
+	case uint32:
+		s.Add(strconv.FormatUint(uint64(vv), 10))
+		return s, true
+	case uint64:
+		s.Add(strconv.FormatUint(vv, 10))
+		return s, true
+	default:
+		return nil, false
+	}
+}
+
+func copySet(s label.Set) label.Set {
+	if s == nil {
+		return nil
+	}
+	n := make(label.Set, len(s))
+	for k := range s {
+		n.Add(k)
+	}
+	return n
+}
 
 // VersionFilter 创建一个按版本号过滤节点的过滤器
 // 只保留版本号匹配的节点

@@ -16,6 +16,7 @@ import (
 
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/resolver"
 )
 
 var addrs = []string{
@@ -46,6 +47,188 @@ func main() {
 	// 示例5: WRR (加权轮询) + 过滤
 	log.Println("\n--- 示例5: WRR (加权轮询) + 过滤 ---")
 	wrrFilterExample()
+
+	// 示例6: Label Selector 过滤（基于 attributes）
+	log.Println("\n--- 示例6: Label Selector 过滤（基于 attributes） ---")
+	labelSelectorFilterExample()
+}
+
+// labelSelectorFilterExample 展示用 label selector 过滤节点。
+//
+// selector 语法由 label 包提供（支持：=,!=,in/notin,exists/!exists,pattern(~=),semver(@),数字比较(>/<) 等）。
+// 数据来源来自 resolver.Address.Attributes：
+//  1. 直接 key/value（推荐，与 discovery.EndpointToAttrs 注入方式一致）
+//  2. 兼容 metadata map：Attributes["metadata"] 为 map[string]string 时可回退读取
+func labelSelectorFilterExample() {
+	attrs := make(map[string]*attributes.Attributes)
+
+	ports := []string{"50051", "50052", "50053"}
+	envs := []string{"prod", "prod", "prod"}
+	regions := []string{"cn-north", "cn-north", "cn-east"}
+	azs := []string{"az1", "az1", "az2"}
+	zones := []string{"z1", "z2", "z3"}
+	lanes := []string{"stable", "canary", "stable"}
+	tenants := []string{"pay", "pay", "ads"}
+	ips := []string{"10.0.1.11", "10.0.1.12", "10.0.2.13"}
+	versions := []string{"2.1.1", "2.2.0", "2.1.0"}
+	weights := []int32{3, 1, 2}
+	tags := [][]string{{"gpu", "x86"}, {"cpu", "x86"}, {"gpu", "arm"}}
+
+	for i, addr := range addrs {
+		md := map[string]string{
+			"env":         envs[i],
+			"region":      regions[i],
+			"az":          azs[i],
+			"zone":        zones[i],
+			"lane":        lanes[i],
+			"tenant":      tenants[i],
+			"system.ip":   ips[i],
+			"system.port": ports[i],
+			"v":           versions[i],
+		}
+		// 演示 metadata-map-only 的兼容读取：legacy.only 只放在 metadata 里，不放在直接 attributes 里。
+		if i == 1 {
+			md["legacy.only"] = "yes"
+		}
+		attrs[addr] = attributes.New(picker.WeightAttributeKey, weights[i]).
+			WithValue("env", envs[i]).
+			WithValue("region", regions[i]).
+			WithValue("az", azs[i]).
+			WithValue("zone", zones[i]).
+			WithValue("lane", lanes[i]).
+			WithValue("tenant", tenants[i]).
+			WithValue("system.ip", ips[i]).
+			WithValue("tags", tags[i]).
+			WithValue("system.id", "node-"+ports[i]).
+			WithValue("system.port", ports[i]).
+			WithValue("v", versions[i]).
+			// 放一份 metadata map，便于演示兼容老写法（selector 也能读到）
+			WithValue(picker.MetadataFilterKey, md)
+	}
+
+	cfg := &grpclient.Config{
+		Endpoints:        addrs,
+		BalanceName:      balancer.RoundRobinBalanceName,
+		Attributes:       attrs,
+		EnableNodeFilter: true,
+
+		DialTimeout:          10 * time.Second,
+		DialKeepAliveTime:    10 * time.Second,
+		DialKeepAliveTimeout: 2 * time.Second,
+		PermitWithoutStream:  true,
+	}
+
+	client, err := grpclient.NewClient(cfg)
+	if err != nil {
+		log.Printf("创建客户端失败: %v", err)
+		return
+	}
+	defer client.Close()
+
+	cc := client.ActiveConnection()
+	echoClient := pb.NewEchoClient(cc)
+
+	log.Println("节点 labels 配置:")
+	for i, addr := range addrs {
+		log.Printf("  %s: env=%s region=%s az=%s zone=%s lane=%s tenant=%s ip=%s tags=%v v=%s weight=%d id=node-%s",
+			addr, envs[i], regions[i], azs[i], zones[i], lanes[i], tenants[i], ips[i], tags[i], versions[i], weights[i], ports[i])
+	}
+
+	dryRun := func(selector string) ([]string, picker.NodeFilter, bool) {
+		f, err := picker.LabelSelectorFilter(selector)
+		if err != nil {
+			log.Printf("selector 解析失败 %q: %v", selector, err)
+			return nil, nil, false
+		}
+		var expected []string
+		for _, addr := range addrs {
+			p, ok := attrs[addr].Value("system.port").(string)
+			if !ok {
+				continue
+			}
+			info := picker.SubConnInfo{Address: resolver.Address{Addr: addr, Attributes: attrs[addr]}}
+			if f(info) {
+				expected = append(expected, p)
+			}
+		}
+		return expected, f, true
+	}
+
+	run := func(scene, selector string) {
+		log.Printf("\n%s\nselector: %s", scene, selector)
+		expected, f, ok := dryRun(selector)
+		if !ok {
+			return
+		}
+		log.Printf("dry-run 命中端口: %v", expected)
+		ctx := picker.WithNodeFilter(context.Background(), f)
+		var picked []string
+		for i := 0; i < 6; i++ {
+			picked = append(picked, callEchoAndExtractPort(echoClient, ctx, "label selector 请求"))
+		}
+		verifyFilterResult(picked, expected, "LabelSelectorFilter("+selector+")")
+	}
+
+	runWithFallback := func(scene, primary, fallback string) {
+		log.Printf("\n%s\nprimary:  %s\nfallback: %s", scene, primary, fallback)
+		expected, f, ok := dryRun(primary)
+		used := primary
+		if !ok {
+			return
+		}
+		if len(expected) == 0 {
+			expected2, f2, ok2 := dryRun(fallback)
+			if !ok2 {
+				return
+			}
+			used = fallback
+			expected = expected2
+			f = f2
+			log.Printf("primary 无命中，使用 fallback")
+		}
+		log.Printf("used selector: %s", used)
+		log.Printf("dry-run 命中端口: %v", expected)
+		ctx := picker.WithNodeFilter(context.Background(), f)
+		var picked []string
+		for i := 0; i < 6; i++ {
+			picked = append(picked, callEchoAndExtractPort(echoClient, ctx, "label selector 请求"))
+		}
+		verifyFilterResult(picked, expected, "LabelSelectorFilter("+used+")")
+	}
+
+	// 业务场景 1：同城就近（同 Region + 同 AZ）
+	run("业务场景1：同城就近（region=cn-north, az=az1）", "env=prod, region=cn-north, az=az1")
+
+	// 业务场景 2：稳定流量（排除灰度 lane）
+	run("业务场景2：稳定流量（排除 lane=canary）", "env=prod, region=cn-north, lane!=canary")
+
+	// 业务场景 3：灰度放量（只走灰度 lane）
+	run("业务场景3：灰度放量（只走 lane=canary）", "env=prod, lane=canary")
+
+	// 业务场景 4：租户隔离（tenant=pay）
+	run("业务场景4：租户隔离（tenant=pay）", "env=prod, tenant=pay")
+
+	// 业务场景 5：跨区容灾（region=cn-east）
+	run("业务场景5：跨区容灾（region=cn-east）", "env=prod, region=cn-east")
+
+	// 业务场景 6：架构/能力约束（只走 ARM 节点）
+	run("业务场景6：架构约束（tags in (arm)）", "env=prod, tags in (arm)")
+
+	// 业务场景 7：容量/成本（只走 weight>1 的节点）
+	run("业务场景7：容量约束（customize_weight>1）", "env=prod, customize_weight>1")
+
+	// 业务场景 8：问题定位（精确打到某个 IP 的节点）
+	run("业务场景8：问题定位（system.ip=10.0.1.11）", "system.ip=10.0.1.11")
+
+	// 业务场景 9：老系统 metadata map 兼容（仅 metadata 里有 legacy.only）
+	run("业务场景9：兼容老 metadata（legacy.only=yes）", "legacy.only=yes")
+
+	// 业务场景 10：就近优先 + 无命中回退
+	runWithFallback(
+		"业务场景10：优先同 AZ（无命中则回退到 cn-east）",
+		"env=prod, region=cn-north, az=az9",
+		"env=prod, region=cn-east",
+	)
 }
 
 // versionFilterExample 展示按版本过滤节点

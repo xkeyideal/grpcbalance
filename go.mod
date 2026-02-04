@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/hashicorp/consul/api v1.33.2
 	go.etcd.io/etcd/client/v3 v3.6.7
 )
