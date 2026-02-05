@@ -152,6 +152,9 @@ func SetDefaultLogger(l Logger) {
 	}
 }
 
+func SetDefaultLoggerLevel(level Level) {
+}
+
 // GetDefaultLogger returns the package-level default logger.
 func GetDefaultLogger() Logger {
 	return defaultGlobalLogger

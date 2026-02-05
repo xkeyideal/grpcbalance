@@ -9,6 +9,7 @@ import (
 	pb "github.com/xkeyideal/grpcbalance/examples/proto/echo"
 	"github.com/xkeyideal/grpcbalance/grpclient"
 	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc"
@@ -71,10 +72,12 @@ func main() {
 		attrs[addr] = attributes.New(picker.WeightAttributeKey, int32(i+1))
 	}
 
+	log := logger.NewDefaultLogger(logger.LevelDebug)
+
 	// https://mdnice.com/writing/5631c3f1ac4047a381daadc81b08f546
 	grpcCfg := &grpclient.Config{
 		Endpoints:         addrs,
-		BalanceName:       balancer.RoundRobinBalanceName,
+		BalanceName:       balancer.WeightedRobinBalanceName,
 		Attributes:        attrs,
 		EnableHealthCheck: true,
 
@@ -86,21 +89,16 @@ func main() {
 		DialKeepAliveTimeout: 2 * time.Second,
 		// 如果没有 active 的 stream， 是否允许发送 ping
 		PermitWithoutStream: true,
+		Logger:              log,
 	}
 
 	grpclient, err := grpclient.NewClient(grpcCfg)
 	if err != nil {
-		log.Panic(err)
+		log.Errorf("Failed to create client: %v", err)
+		return
 	}
 
 	defer grpclient.Close()
-
-	for i := 0; i < 50; i++ {
-		cc := grpclient.ActiveConnection()
-		hwc := pb.NewEchoClient(cc)
-		callUnaryEcho(hwc, "this is examples/load_balancing")
-		time.Sleep(3 * time.Second)
-	}
 
 	makeRPCs(grpclient.ActiveConnection(), 10)
 	serverStream(grpclient.ActiveConnection())

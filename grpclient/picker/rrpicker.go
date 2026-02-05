@@ -4,12 +4,19 @@ import (
 	"math/rand"
 	"sync"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
+
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/resolver"
 )
 
 type RRPickerBuilder struct {
+	logger logger.Logger
+}
+
+func (pb *RRPickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
 }
 
 func (pb *RRPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
@@ -23,9 +30,16 @@ func (pb *RRPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		scToAddr[sc] = scInfo.Address
 	}
 
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+	log.Debugf("RRPicker built with %d SubConns", len(scs))
+
 	return &rrPicker{
 		subConns: scs,
 		scToAddr: scToAddr,
+		logger:   log,
 		// Start at a random index, as the same RR balancer rebuilds a new
 		// picker when SubConn states change, and we don't want to apply excess
 		// load to the first server in the list.
@@ -40,6 +54,7 @@ type rrPicker struct {
 	subConns []balancer.SubConn
 
 	scToAddr map[balancer.SubConn]resolver.Address
+	logger   logger.Logger
 
 	mu   sync.Mutex
 	next int
@@ -53,12 +68,18 @@ func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 	sc := p.subConns[p.next]
-	// picked := p.scToAddr[sc]
+	picked := p.scToAddr[sc]
 	p.next = (p.next + 1) % n
 	p.mu.Unlock()
 
+	p.logger.Debugf("RRPicker: picked %s (index: %d/%d)", picked.Addr, (p.next-1+n)%n, n)
+
 	done := func(info balancer.DoneInfo) {
-		// log.Println("rrpicker done", picked.Addr)
+		if info.Err != nil {
+			p.logger.Debugf("RRPicker: done %s, error: %v", picked.Addr, info.Err)
+		} else {
+			p.logger.Debugf("RRPicker: done %s, success", picked.Addr)
+		}
 	}
 
 	return balancer.PickResult{SubConn: sc, Done: done}, nil

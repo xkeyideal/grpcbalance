@@ -198,6 +198,8 @@ func (b *baseBalancer) regeneratePicker() {
 		}
 	}
 	b.logger.Debugf("regenerated picker with %d ready SubConns", len(readySCs))
+	// Pass logger to picker builder before building
+	b.pickerBuilder.SetLogger(b.logger)
 	b.picker = b.pickerBuilder.Build(picker.PickerBuildInfo{ReadySCs: readySCs})
 }
 

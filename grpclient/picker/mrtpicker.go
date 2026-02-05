@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/priorityqueue"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
@@ -18,6 +19,11 @@ const (
 )
 
 type MrtPickerBuilder struct {
+	logger logger.Logger
+}
+
+func (pb *MrtPickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
 }
 
 func (pb *MrtPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
@@ -41,11 +47,18 @@ func (pb *MrtPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		i++
 	}
 
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+	log.Debugf("MrtPicker built with %d SubConns", len(scs))
+
 	return &mrtPicker{
 		subConns:   scs,
 		scToAddr:   scToAddr,
 		scCostTime: scCostTime,
 		scEWMA:     scEWMA,
+		logger:     log,
 		// Start at a random index, as the same RR balancer rebuilds a new
 		// picker when SubConn states change, and we don't want to apply excess
 		// load to the first server in the list.
@@ -60,6 +73,7 @@ type mrtPicker struct {
 	subConns []balancer.SubConn
 
 	scToAddr map[balancer.SubConn]resolver.Address
+	logger   logger.Logger
 
 	// subConns response cost time (priority queue based on EWMA)
 	scCostTime *priorityqueue.PriorityQueue
@@ -86,7 +100,11 @@ func (p *mrtPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	item := minItem.(*priorityqueue.Item)
 	p.next = item.Index
 	sc := p.subConns[p.next]
+	picked := p.scToAddr[sc]
+	ewmaBefore := p.scEWMA[item.Index]
 	p.mu.Unlock()
+
+	p.logger.Debugf("MrtPicker: picked %s (ewma: %.2fμs)", picked.Addr, ewmaBefore)
 
 	start := time.Now()
 	done := func(info balancer.DoneInfo) {
@@ -103,7 +121,11 @@ func (p *mrtPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 			}
 			item.Val = int64(p.scEWMA[item.Index])
 			p.scCostTime.UpdateItem(item)
+			newEwma := p.scEWMA[item.Index]
 			p.mu.Unlock()
+			p.logger.Debugf("MrtPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs", picked.Addr, latency, ewmaBefore, newEwma)
+		} else {
+			p.logger.Debugf("MrtPicker: done %s, error: %v, latency: %.2fμs", picked.Addr, info.Err, latency)
 		}
 	}
 

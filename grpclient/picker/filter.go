@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/label"
 
 	"google.golang.org/grpc/attributes"
@@ -314,7 +315,8 @@ func MetadataExistsFilter(key string) NodeFilter {
 // 这在大多数场景下是可接受的，因为过滤通常用于灰度发布、版本控制等场景，
 // 不同版本的节点本身就应该独立统计。
 type FilteredPickerBuilder struct {
-	inner PickerBuilder
+	inner  PickerBuilder
+	logger logger.Logger
 }
 
 // NewFilteredPickerBuilder 创建一个支持过滤的 PickerBuilder
@@ -322,7 +324,22 @@ func NewFilteredPickerBuilder(pb PickerBuilder) *FilteredPickerBuilder {
 	return &FilteredPickerBuilder{inner: pb}
 }
 
+// SetLogger sets the logger for both the wrapper and inner builder
+func (fpb *FilteredPickerBuilder) SetLogger(log logger.Logger) {
+	fpb.logger = log
+	if fpb.inner != nil {
+		fpb.inner.SetLogger(log)
+	}
+}
+
 func (fpb *FilteredPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
+	log := fpb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
+	log.Debugf("FilteredPicker built with %d SubConns, ready for dynamic filtering", len(info.ReadySCs))
+
 	// 直接构建，过滤在 Pick 时进行
 	// 同时预构建一个使用所有节点的 picker，用于无过滤器场景
 	return &filteredPicker{
@@ -330,6 +347,7 @@ func (fpb *FilteredPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		allNodes:      info.ReadySCs,
 		defaultPicker: fpb.inner.Build(info),
 		cachedPickers: make(map[string]balancer.Picker),
+		logger:        log,
 	}
 }
 
@@ -337,6 +355,7 @@ type filteredPicker struct {
 	innerBuilder  PickerBuilder
 	allNodes      map[balancer.SubConn]SubConnInfo
 	defaultPicker balancer.Picker // 无过滤器时使用的 picker
+	logger        logger.Logger
 
 	mu            sync.RWMutex
 	cachedPickers map[string]balancer.Picker // 缓存按过滤条件分组的 picker
@@ -381,6 +400,7 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 	}
 
 	if len(filteredNodes) == 0 {
+		fp.logger.Warnf("Filter: all %d SubConns filtered out, no available nodes", len(fp.allNodes))
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 
@@ -388,6 +408,8 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 	if len(filteredNodes) == len(fp.allNodes) {
 		return fp.defaultPicker.Pick(info)
 	}
+
+	fp.logger.Debugf("Filter: %d/%d SubConns matched filter criteria", len(filteredNodes), len(fp.allNodes))
 
 	// 生成缓存 key
 	cacheKey := filterCacheKey(filteredNodes)

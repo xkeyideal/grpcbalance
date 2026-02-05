@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
+
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/resolver"
@@ -52,7 +54,13 @@ func (n *p2cNode) pickElapsed() time.Duration {
 }
 
 // P2CPickerBuilder P2C选择器构造器
-type P2CPickerBuilder struct{}
+type P2CPickerBuilder struct {
+	logger logger.Logger
+}
+
+func (pb *P2CPickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
+}
 
 func (pb *P2CPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	if len(info.ReadySCs) == 0 {
@@ -70,10 +78,17 @@ func (pb *P2CPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 		})
 	}
 
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+	log.Debugf("P2CPicker built with %d SubConns", len(nodes))
+
 	return &p2cPicker{
 		nodes:  nodes,
 		rand:   rand.New(rand.NewSource(time.Now().UnixNano())),
 		picked: atomic.Bool{},
+		logger: log,
 	}
 }
 
@@ -82,6 +97,7 @@ type p2cPicker struct {
 	mu     sync.Mutex
 	rand   *rand.Rand
 	picked atomic.Bool // 用于 forcePick 逻辑
+	logger logger.Logger
 }
 
 // prePick 随机选择两个不同的节点
@@ -137,6 +153,11 @@ func (p *p2cPicker) pickNode(node *p2cNode) (balancer.PickResult, error) {
 	atomic.AddInt64(&node.inflight, 1)
 	atomic.AddInt64(&node.requests, 1)
 
+	addr := node.addr.Addr
+	loadBefore := node.load()
+	ewmaBefore := node.ewma
+	p.logger.Debugf("P2CPicker: picked %s (load: %.2f, ewma: %.2fμs, inflight: %d)", addr, loadBefore, ewmaBefore, node.inflight)
+
 	start := time.Now()
 	done := func(info balancer.DoneInfo) {
 		// 减少 inflight 计数
@@ -154,7 +175,14 @@ func (p *p2cPicker) pickNode(node *p2cNode) (balancer.PickResult, error) {
 		} else {
 			node.ewma = ewmaAlpha*latency + (1-ewmaAlpha)*node.ewma
 		}
+		newEwma := node.ewma
 		node.mu.Unlock()
+
+		if info.Err != nil {
+			p.logger.Debugf("P2CPicker: done %s, error: %v, latency: %.2fμs, inflight: %d", addr, info.Err, latency, node.inflight)
+		} else {
+			p.logger.Debugf("P2CPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs, inflight: %d", addr, latency, ewmaBefore, newEwma, node.inflight)
+		}
 	}
 
 	return balancer.PickResult{SubConn: node.sc, Done: done}, nil

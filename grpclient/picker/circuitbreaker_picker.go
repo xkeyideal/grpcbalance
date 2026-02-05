@@ -2,6 +2,7 @@ package picker
 
 import (
 	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/resolver"
 )
@@ -10,6 +11,7 @@ import (
 type CircuitBreakerPickerBuilder struct {
 	inner   PickerBuilder
 	manager *circuitbreaker.Manager
+	logger  logger.Logger
 }
 
 // NewCircuitBreakerPickerBuilder creates a new circuit breaker enabled picker builder
@@ -28,8 +30,22 @@ func NewCircuitBreakerPickerBuilderWithDefaults(inner PickerBuilder) *CircuitBre
 	}
 }
 
+// SetLogger sets the logger for both the wrapper and inner builder
+func (pb *CircuitBreakerPickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
+	if pb.inner != nil {
+		pb.inner.SetLogger(log)
+	}
+}
+
 // Build creates a picker with circuit breaker functionality
 func (pb *CircuitBreakerPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
+	totalCount := len(info.ReadySCs)
 	// Filter out endpoints with open circuit breakers
 	filteredSCs := make(map[balancer.SubConn]SubConnInfo)
 	for sc, scInfo := range info.ReadySCs {
@@ -39,9 +55,15 @@ func (pb *CircuitBreakerPickerBuilder) Build(info PickerBuildInfo) balancer.Pick
 		}
 	}
 
+	filteredCount := len(filteredSCs)
 	// If all circuits are open, use original list to prevent complete outage
-	if len(filteredSCs) == 0 {
+	if filteredCount == 0 {
 		filteredSCs = info.ReadySCs
+		log.Warnf("CircuitBreaker: all %d SubConns have open circuits, using all to prevent outage", totalCount)
+	} else if filteredCount < totalCount {
+		log.Infof("CircuitBreaker: filtered %d/%d SubConns with open circuits", totalCount-filteredCount, totalCount)
+	} else {
+		log.Debugf("CircuitBreaker: all %d SubConns are healthy", totalCount)
 	}
 
 	innerPicker := pb.inner.Build(PickerBuildInfo{ReadySCs: filteredSCs})
@@ -49,6 +71,7 @@ func (pb *CircuitBreakerPickerBuilder) Build(info PickerBuildInfo) balancer.Pick
 	return &circuitBreakerPicker{
 		inner:   innerPicker,
 		manager: pb.manager,
+		logger:  log,
 		scToAddr: func() map[balancer.SubConn]string {
 			m := make(map[balancer.SubConn]string)
 			for sc, scInfo := range info.ReadySCs {
@@ -67,6 +90,7 @@ func (pb *CircuitBreakerPickerBuilder) Manager() *circuitbreaker.Manager {
 type circuitBreakerPicker struct {
 	inner    balancer.Picker
 	manager  *circuitbreaker.Manager
+	logger   logger.Logger
 	scToAddr map[balancer.SubConn]string
 }
 
@@ -84,8 +108,10 @@ func (p *circuitBreakerPicker) Pick(info balancer.PickInfo) (balancer.PickResult
 	result.Done = func(doneInfo balancer.DoneInfo) {
 		if doneInfo.Err != nil {
 			cb.RecordFailure()
+			p.logger.Debugf("CircuitBreaker: recorded failure for %s", addr)
 		} else {
 			cb.RecordSuccess()
+			p.logger.Debugf("CircuitBreaker: recorded success for %s", addr)
 		}
 
 		if originalDone != nil {
@@ -100,6 +126,7 @@ func (p *circuitBreakerPicker) Pick(info balancer.PickInfo) (balancer.PickResult
 type HealthAwarePickerBuilder struct {
 	inner        PickerBuilder
 	healthyAddrs func() []string // Function to get healthy addresses
+	logger       logger.Logger
 }
 
 // NewHealthAwarePickerBuilder creates a health-aware picker builder
@@ -110,8 +137,22 @@ func NewHealthAwarePickerBuilder(inner PickerBuilder, healthyAddrs func() []stri
 	}
 }
 
+// SetLogger sets the logger for both the wrapper and inner builder
+func (pb *HealthAwarePickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
+	if pb.inner != nil {
+		pb.inner.SetLogger(log)
+	}
+}
+
 // Build creates a picker that only uses healthy endpoints
 func (pb *HealthAwarePickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
+	totalCount := len(info.ReadySCs)
 	healthySet := make(map[string]bool)
 	for _, addr := range pb.healthyAddrs() {
 		healthySet[addr] = true
@@ -125,9 +166,15 @@ func (pb *HealthAwarePickerBuilder) Build(info PickerBuildInfo) balancer.Picker 
 		}
 	}
 
+	filteredCount := len(filteredSCs)
 	// If no healthy endpoints, use all (fallback)
-	if len(filteredSCs) == 0 {
+	if filteredCount == 0 {
 		filteredSCs = info.ReadySCs
+		log.Warnf("HealthAware: no healthy SubConns found, using all %d to prevent outage", totalCount)
+	} else if filteredCount < totalCount {
+		log.Infof("HealthAware: filtered %d/%d unhealthy SubConns", totalCount-filteredCount, totalCount)
+	} else {
+		log.Debugf("HealthAware: all %d SubConns are healthy", totalCount)
 	}
 
 	return pb.inner.Build(PickerBuildInfo{ReadySCs: filteredSCs})
@@ -138,6 +185,7 @@ type CombinedPickerBuilder struct {
 	inner        PickerBuilder
 	cbManager    *circuitbreaker.Manager
 	healthyAddrs func() []string
+	logger       logger.Logger
 }
 
 // NewCombinedPickerBuilder creates a picker builder with both circuit breaker and health check
@@ -153,8 +201,22 @@ func NewCombinedPickerBuilder(
 	}
 }
 
+// SetLogger sets the logger for both the wrapper and inner builder
+func (pb *CombinedPickerBuilder) SetLogger(log logger.Logger) {
+	pb.logger = log
+	if pb.inner != nil {
+		pb.inner.SetLogger(log)
+	}
+}
+
 // Build creates a picker with combined functionality
 func (pb *CombinedPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
+	log := pb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
+	totalCount := len(info.ReadySCs)
 	// Get healthy addresses
 	healthySet := make(map[string]bool)
 	if pb.healthyAddrs != nil {
@@ -165,24 +227,40 @@ func (pb *CombinedPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 
 	// Filter endpoints based on health and circuit breaker
 	filteredSCs := make(map[balancer.SubConn]SubConnInfo)
+	unhealthyCount := 0
+	circuitOpenCount := 0
 	for sc, scInfo := range info.ReadySCs {
 		addr := scInfo.Address.Addr
 
 		// Check health (if health check is configured)
 		isHealthy := len(healthySet) == 0 || healthySet[addr]
+		if !isHealthy {
+			unhealthyCount++
+		}
 
 		// Check circuit breaker
 		cb := pb.cbManager.Get(addr)
 		cbAllows := cb.Allow()
+		if !cbAllows {
+			circuitOpenCount++
+		}
 
 		if isHealthy && cbAllows {
 			filteredSCs[sc] = scInfo
 		}
 	}
 
+	filteredCount := len(filteredSCs)
 	// Fallback: if all filtered out, use original list
-	if len(filteredSCs) == 0 {
+	if filteredCount == 0 {
 		filteredSCs = info.ReadySCs
+		log.Warnf("Combined: all %d SubConns filtered (unhealthy:%d, circuit-open:%d), using all to prevent outage",
+			totalCount, unhealthyCount, circuitOpenCount)
+	} else if filteredCount < totalCount {
+		log.Infof("Combined: filtered %d/%d SubConns (unhealthy:%d, circuit-open:%d)",
+			totalCount-filteredCount, totalCount, unhealthyCount, circuitOpenCount)
+	} else {
+		log.Debugf("Combined: all %d SubConns are healthy with closed circuits", totalCount)
 	}
 
 	innerPicker := pb.inner.Build(PickerBuildInfo{ReadySCs: filteredSCs})
@@ -190,6 +268,7 @@ func (pb *CombinedPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	return &circuitBreakerPicker{
 		inner:   innerPicker,
 		manager: pb.cbManager,
+		logger:  log,
 		scToAddr: func() map[balancer.SubConn]string {
 			m := make(map[balancer.SubConn]string)
 			for sc, scInfo := range info.ReadySCs {

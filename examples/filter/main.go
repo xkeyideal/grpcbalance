@@ -14,6 +14,7 @@ import (
 	"github.com/xkeyideal/grpcbalance/grpclient"
 	"github.com/xkeyideal/grpcbalance/grpclient/balancer"
 	"github.com/xkeyideal/grpcbalance/grpclient/discovery"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/attributes"
@@ -221,6 +222,7 @@ func discoveryMetadataLabelSelectorExample() {
 
 	d := newDemoDiscovery(eps)
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		BalanceName:           balancer.RoundRobinBalanceName,
 		EnableNodeFilter:      true,
@@ -232,6 +234,7 @@ func discoveryMetadataLabelSelectorExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -398,6 +401,7 @@ func labelSelectorFilterExample() {
 			WithValue(picker.MetadataFilterKey, md)
 	}
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.RoundRobinBalanceName,
@@ -409,6 +413,7 @@ func labelSelectorFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -534,6 +539,7 @@ func versionFilterExample() {
 		attrs[addr] = attributes.New(picker.VersionFilterKey, versions[i])
 	}
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.RoundRobinBalanceName,
@@ -545,6 +551,7 @@ func versionFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -595,6 +602,7 @@ func metadataFilterExample() {
 		attrs[addr] = attributes.New(picker.MetadataFilterKey, nodeMetadata[i])
 	}
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.RoundRobinBalanceName,
@@ -606,6 +614,7 @@ func metadataFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -650,6 +659,7 @@ func metadataFilterExample() {
 
 // addressFilterExample 展示按地址过滤节点
 func addressFilterExample() {
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.RoundRobinBalanceName,
@@ -660,6 +670,7 @@ func addressFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -728,6 +739,7 @@ func combinedFilterExample() {
 		)
 	}
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.RoundRobinBalanceName,
@@ -739,6 +751,7 @@ func combinedFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)
@@ -787,6 +800,7 @@ func wrrFilterExample() {
 		)
 	}
 
+	lg := logger.NewDefaultLogger(logger.LevelDebug)
 	cfg := &grpclient.Config{
 		Endpoints:         addrs,
 		BalanceName:       balancer.WeightedRobinBalanceName, // 使用加权轮询
@@ -798,6 +812,7 @@ func wrrFilterExample() {
 		DialKeepAliveTime:    10 * time.Second,
 		DialKeepAliveTimeout: 2 * time.Second,
 		PermitWithoutStream:  true,
+		Logger:               lg,
 	}
 
 	client, err := grpclient.NewClient(cfg)

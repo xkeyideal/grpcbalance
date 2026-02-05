@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
+
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/resolver"
 )
@@ -14,6 +16,8 @@ const WeightAttributeKey = "x_customize_weight"
 type PickerBuilder interface {
 	// Build returns a picker that will be used by gRPC to pick a SubConn.
 	Build(info PickerBuildInfo) balancer.Picker
+	// SetLogger sets the logger for this picker builder
+	SetLogger(log logger.Logger)
 }
 
 // PickerBuildInfo contains information needed by the picker builder to
