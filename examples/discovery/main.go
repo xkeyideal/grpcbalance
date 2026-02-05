@@ -64,6 +64,7 @@ func staticDiscoveryExample() {
 		DialTimeout:          5 * time.Second,
 		DialKeepAliveTime:    30 * time.Second,
 		DialKeepAliveTimeout: 10 * time.Second,
+		EnableHealthCheck:    true,
 		Discovery:            staticDiscovery,
 		OnEndpointsUpdate: func(endpoints []discovery.Endpoint) {
 			log.Printf("Endpoints updated: %v", discovery.EndpointsToAddrs(endpoints))
@@ -106,6 +107,7 @@ func customDiscoveryExample() {
 		DialKeepAliveTime:    30 * time.Second,
 		DialKeepAliveTimeout: 10 * time.Second,
 		Discovery:            pollingDiscovery,
+		EnableHealthCheck:    true,
 		OnEndpointsUpdate: func(endpoints []discovery.Endpoint) {
 			log.Printf("Endpoints updated via polling: %v", endpoints)
 		},

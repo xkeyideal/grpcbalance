@@ -123,6 +123,7 @@ func main() {
     cfg := &grpclient.Config{
         Endpoints:   []string{"127.0.0.1:50051", "127.0.0.1:50052"},
         BalanceName: balancer.RoundRobinBalanceName,
+        EnableHealthCheck:     true,
         
         EnableCircuitBreaker: true, // 启用熔断器
     }
@@ -151,6 +152,7 @@ balancer.RegisterP2CBalance()
 cfg := &grpclient.Config{
     Endpoints:   addrs,
     BalanceName: balancer.P2CBalancerName,
+    EnableHealthCheck:     true,
 }
 ```
 
@@ -184,6 +186,7 @@ cfg := &grpclient.Config{
     Endpoints:        addrs,
     BalanceName:      balancer.RoundRobinBalanceName,
     EnableNodeFilter: true,
+    EnableHealthCheck:     true,
 }
 _ = cfg
 
@@ -274,6 +277,7 @@ pollingDiscovery := discovery.NewPollingDiscovery(
 cfg := &grpclient.Config{
     BalanceName: balancer.RoundRobinBalanceName,
     Discovery:   pollingDiscovery, // 设置后 Endpoints 被忽略
+    EnableHealthCheck:     true,
 }
 ```
 

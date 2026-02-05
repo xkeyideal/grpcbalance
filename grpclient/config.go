@@ -111,6 +111,9 @@ type Config struct {
 	// When enabled, endpoints that fail consecutively will be temporarily disabled
 	EnableCircuitBreaker bool
 
+	// EnableHealthCheck indicates whether health checking should be enabled for this specific balancer.
+	EnableHealthCheck bool
+
 	// CircuitBreakerConfig is the configuration for the circuit breaker
 	// If nil, default configuration will be used when EnableCircuitBreaker is true
 	CircuitBreakerConfig *circuitbreaker.Config

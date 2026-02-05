@@ -8,7 +8,7 @@ import (
 // WeightAttributeKey is the key for weight attribute in gRPC resolver.Address.Attributes.
 // The canonical definition is in grpclient/internal.WeightAttributeKey.
 // This is kept for backward compatibility with existing code that imports picker.WeightAttributeKey.
-const WeightAttributeKey = "customize_weight"
+const WeightAttributeKey = "x_customize_weight"
 
 // PickerBuilder creates balancer.Picker.
 type PickerBuilder interface {

@@ -61,6 +61,7 @@ cfg := &grpclient.Config{
     Endpoints:        []string{"127.0.0.1:8081", "127.0.0.1:8082"},
     BalanceName:      balancer.RoundRobinBalanceName,
     EnableNodeFilter: true, // 启用节点过滤
+    EnableHealthCheck:     true,
 }
 ```
 
@@ -153,7 +154,8 @@ balancer.RegisterP2CBalanceWithCircuitBreaker(cbConfig)
 
 cfg := &grpclient.Config{
     Endpoints:   addrs,
-    BalanceName: balancer.P2CBalancerName, // "p2c_x"
+    BalanceName: balancer.P2CBalancerName, 
+    EnableHealthCheck:     true,
 }
 ```
 
@@ -312,6 +314,7 @@ cfg := &grpclient.Config{
     BalanceName:          balancer.RoundRobinBalanceName,
     Discovery:            pollingDiscovery,
     DiscoveryPollInterval: 30 * time.Second,
+    EnableHealthCheck:     true,
     OnEndpointsUpdate: func(endpoints []discovery.Endpoint) {
         log.Printf("端点已更新: %v", discovery.EndpointsToAddrs(endpoints))
     },
@@ -332,6 +335,7 @@ etcdDiscovery, err := discovery.NewEtcdDiscovery(discovery.EtcdDiscoveryConfig{
 
 cfg := &grpclient.Config{
     Discovery: etcdDiscovery,
+    EnableHealthCheck:     true,
 }
 ```
 
@@ -346,6 +350,7 @@ consulDiscovery, err := discovery.NewConsulDiscovery(discovery.ConsulDiscoveryCo
 
 cfg := &grpclient.Config{
     Discovery: consulDiscovery,
+    EnableHealthCheck:     true,
 }
 ```
 
@@ -449,6 +454,7 @@ func main() {
         BalanceName: balancer.RoundRobinBalanceName,
         
         EnableCircuitBreaker: true, // 启用熔断器
+        EnableHealthCheck:     true,
     }
     
     client, err := grpclient.NewClient(cfg)
@@ -470,6 +476,7 @@ balancer.RegisterP2CBalance()
 cfg := &grpclient.Config{
     Endpoints:   addrs,
     BalanceName: balancer.P2CBalancerName,
+    EnableHealthCheck:     true,
 }
 ```
 

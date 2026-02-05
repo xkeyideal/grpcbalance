@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/balancer"
@@ -33,6 +34,7 @@ import (
 type baseBalancer struct {
 	cc            balancer.ClientConn
 	pickerBuilder picker.PickerBuilder
+	logger        logger.Logger
 
 	mu      sync.Mutex // protects following fields
 	csEvltr *balancer.ConnectivityStateEvaluator
@@ -59,6 +61,8 @@ func (b *baseBalancer) ResolverError(err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.logger.Errorf("resolver error: %v, subConns count: %d", err, b.subConns.Len())
+
 	b.resolverErr = err
 	if b.subConns.Len() == 0 {
 		b.state = connectivity.TransientFailure
@@ -83,6 +87,9 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 
 	// Successful resolution; clear resolver error and ensure we return nil.
 	b.resolverErr = nil
+
+	b.logger.Debugf("UpdateClientConnState: received %d addresses", len(s.ResolverState.Addresses))
+
 	// addrsSet is the set converted from addrs, it's used for quick lookup of an address.
 	// We use addresses without attributes as map keys to avoid panic when
 	// attributes contain non-comparable types (e.g., map[string]string).
@@ -113,9 +120,11 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 
 		sc, err := b.cc.NewSubConn([]resolver.Address{a}, opts)
 		if err != nil {
+			b.logger.Warnf("failed to create SubConn for %v: %v", a.Addr, err)
 			continue
 		}
 
+		b.logger.Infof("created new SubConn for %v", a.Addr)
 		b.subConns.Set(aNoAttrs, sc)
 		b.scStates[sc] = connectivity.Idle
 		b.scAddrs[sc] = a // Store the original address with attributes for picker
@@ -127,6 +136,7 @@ func (b *baseBalancer) UpdateClientConnState(s balancer.ClientConnState) error {
 		sc, _ := b.subConns.Get(a)
 		// a was removed by resolver.
 		if _, ok := addrsSet.Get(a); !ok {
+			b.logger.Infof("removing SubConn for %v", a.Addr)
 			sc.Shutdown()
 			b.subConns.Delete(a)
 			// Keep the state of this sc in b.scStates until sc's state becomes Shutdown.
@@ -169,6 +179,7 @@ func (b *baseBalancer) mergeErrors() error {
 //   - built by the pickerBuilder with all READY SubConns otherwise.
 func (b *baseBalancer) regeneratePicker() {
 	if b.state == connectivity.TransientFailure {
+		b.logger.Warnf("regenerating picker in TransientFailure state: %v", b.mergeErrors())
 		b.picker = picker.NewErrPicker(b.mergeErrors())
 		return
 	}
@@ -186,6 +197,7 @@ func (b *baseBalancer) regeneratePicker() {
 			readySCs[sc] = picker.SubConnInfo{Address: originalAddr}
 		}
 	}
+	b.logger.Debugf("regenerated picker with %d ready SubConns", len(readySCs))
 	b.picker = b.pickerBuilder.Build(picker.PickerBuildInfo{ReadySCs: readySCs})
 }
 
@@ -203,6 +215,12 @@ func (b *baseBalancer) updateSubConnState(sc balancer.SubConn, state balancer.Su
 	if !ok {
 		return
 	}
+
+	addr := "unknown"
+	if a, ok := b.scAddrs[sc]; ok {
+		addr = a.Addr
+	}
+	b.logger.Debugf("SubConn state change for %v: %v -> %v", addr, oldS, s)
 
 	if oldS == connectivity.TransientFailure &&
 		(s == connectivity.Connecting || s == connectivity.Idle) {
@@ -222,11 +240,13 @@ func (b *baseBalancer) updateSubConnState(sc balancer.SubConn, state balancer.Su
 	case connectivity.Shutdown:
 		// When an address was removed by resolver, b called RemoveSubConn but
 		// kept the sc's state in scStates. Remove state for this sc here.
+		b.logger.Debugf("SubConn shutdown for %v", addr)
 		delete(b.scStates, sc)
 		delete(b.scAddrs, sc)
 	case connectivity.TransientFailure:
 		// Save error to be reported via picker.
 		b.connErr = state.ConnectionError
+		b.logger.Warnf("SubConn %v entered TransientFailure: %v", addr, state.ConnectionError)
 	}
 
 	b.state = b.csEvltr.RecordTransition(oldS, s)
@@ -255,10 +275,15 @@ func (b *baseBalancer) ExitIdle() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	idleCount := 0
 	for _, addr := range b.subConns.Keys() {
 		sc, _ := b.subConns.Get(addr)
 		if st, ok := b.scStates[sc]; ok && st == connectivity.Idle {
 			sc.Connect()
+			idleCount++
 		}
+	}
+	if idleCount > 0 {
+		b.logger.Infof("ExitIdle: reconnecting %d idle SubConns", idleCount)
 	}
 }

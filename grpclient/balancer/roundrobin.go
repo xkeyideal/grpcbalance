@@ -2,6 +2,7 @@ package balancer
 
 import (
 	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 
 	"google.golang.org/grpc/balancer"
@@ -9,50 +10,57 @@ import (
 	"google.golang.org/grpc/resolver"
 )
 
-const RoundRobinBalanceName = "customize_round_robin"
+const RoundRobinBalanceName = "x_customize_round_robin"
 
 type rrBalance struct {
 	pickerBuilder picker.PickerBuilder
-	config        Config
+
+	// Logger is the logger for this balancer. If nil, the default logger will be used.
+	Logger logger.Logger
+
+	config Config
 }
 
-func RegisterRRBalance(healthCheck bool) {
+func RegisterRRBalance(healthCheck bool, log logger.Logger) {
 	rb := &rrBalance{
 		pickerBuilder: &picker.RRPickerBuilder{},
 		config: Config{
 			HealthCheck: healthCheck,
 		},
+		Logger: log,
 	}
 
 	balancer.Register(rb)
 }
 
 // RegisterRRBalanceWithFilter registers round robin balancer with node filter support
-func RegisterRRBalanceWithFilter(healthCheck bool) {
+func RegisterRRBalanceWithFilter(healthCheck bool, log logger.Logger) {
 	rb := &rrBalance{
 		pickerBuilder: picker.NewFilteredPickerBuilder(&picker.RRPickerBuilder{}),
 		config: Config{
 			HealthCheck: healthCheck,
 		},
+		Logger: log,
 	}
 
 	balancer.Register(rb)
 }
 
 // RegisterRRBalanceWithCircuitBreaker registers round robin balancer with circuit breaker
-func RegisterRRBalanceWithCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+func RegisterRRBalanceWithCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config, log logger.Logger) {
 	rb := &rrBalance{
 		pickerBuilder: picker.NewCircuitBreakerPickerBuilder(&picker.RRPickerBuilder{}, cbConfig),
 		config: Config{
 			HealthCheck: healthCheck,
 		},
+		Logger: log,
 	}
 
 	balancer.Register(rb)
 }
 
 // RegisterRRBalanceWithFilterAndCircuitBreaker registers round robin balancer with both filter and circuit breaker
-func RegisterRRBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config) {
+func RegisterRRBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config, log logger.Logger) {
 	rb := &rrBalance{
 		pickerBuilder: picker.NewFilteredPickerBuilder(
 			picker.NewCircuitBreakerPickerBuilder(&picker.RRPickerBuilder{}, cbConfig),
@@ -60,15 +68,22 @@ func RegisterRRBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig cir
 		config: Config{
 			HealthCheck: healthCheck,
 		},
+		Logger: log,
 	}
 
 	balancer.Register(rb)
 }
 
 func (b *rrBalance) Build(cc balancer.ClientConn, opt balancer.BuildOptions) balancer.Balancer {
+	log := b.Logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
 	bal := &baseBalancer{
 		cc:            cc,
 		pickerBuilder: b.pickerBuilder,
+		logger:        log,
 
 		subConns: resolver.NewAddressMapV2[balancer.SubConn](),
 		scStates: make(map[balancer.SubConn]connectivity.State),

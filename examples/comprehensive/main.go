@@ -83,9 +83,10 @@ func productionExample() {
 
 	// 3. 创建客户端
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.MinRespTimeBalanceName, // 使用最小响应时间算法
-		Attributes:  attrs,
+		Endpoints:         addrs,
+		BalanceName:       balancer.MinRespTimeBalanceName, // 使用最小响应时间算法
+		Attributes:        attrs,
+		EnableHealthCheck: true,
 
 		EnableCircuitBreaker: true,
 		CircuitBreakerConfig: cbConfig,
@@ -146,6 +147,7 @@ func multiRegionExample() {
 		Endpoints:            addrs,
 		BalanceName:          balancer.RoundRobinBalanceName,
 		Attributes:           attrs,
+		EnableHealthCheck:    true,
 		EnableCircuitBreaker: true,
 		EnableNodeFilter:     true, // 启用节点过滤
 
@@ -221,6 +223,7 @@ func canaryDeploymentExample() {
 		Endpoints:            addrs,
 		BalanceName:          balancer.RoundRobinBalanceName,
 		Attributes:           attrs,
+		EnableHealthCheck:    true,
 		EnableCircuitBreaker: true,
 		EnableNodeFilter:     true, // 启用节点过滤
 

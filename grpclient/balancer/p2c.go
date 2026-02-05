@@ -2,81 +2,95 @@ package balancer
 
 import (
 	"github.com/xkeyideal/grpcbalance/grpclient/circuitbreaker"
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"github.com/xkeyideal/grpcbalance/grpclient/picker"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/resolver"
 )
 
-const P2CBalancerName = "p2c_x"
+const P2CBalancerName = "x_customize_p2c"
 
-func RegisterP2CBalance() {
-	builder := &p2cBalanceBuilder{
-		name:       P2CBalancerName,
-		withFilter: false,
+func RegisterP2CBalance(healthCheck bool, log logger.Logger) {
+	builder := &p2cBalance{
+		pickerBuilder: &picker.P2CPickerBuilder{},
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+		Logger: log,
 	}
+
 	balancer.Register(builder)
 }
 
 // RegisterP2CBalanceWithFilter registers P2C balancer with node filter support
-func RegisterP2CBalanceWithFilter() {
-	builder := &p2cBalanceBuilder{
-		name:       P2CBalancerName,
-		withFilter: true,
+func RegisterP2CBalanceWithFilter(healthCheck bool, log logger.Logger) {
+	builder := &p2cBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(&picker.P2CPickerBuilder{}),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+		Logger: log,
 	}
 	balancer.Register(builder)
 }
 
-func RegisterP2CBalanceWithCircuitBreaker(cbConfig circuitbreaker.Config) {
-	builder := &p2cBalanceBuilder{
-		name:           P2CBalancerName,
-		circuitBreaker: &cbConfig,
-		withFilter:     false,
+func RegisterP2CBalanceWithCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config, log logger.Logger) {
+	builder := &p2cBalance{
+		pickerBuilder: picker.NewCircuitBreakerPickerBuilder(&picker.P2CPickerBuilder{}, cbConfig),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+		Logger: log,
 	}
 	balancer.Register(builder)
 }
 
 // RegisterP2CBalanceWithFilterAndCircuitBreaker registers P2C balancer with both filter and circuit breaker
-func RegisterP2CBalanceWithFilterAndCircuitBreaker(cbConfig circuitbreaker.Config) {
-	builder := &p2cBalanceBuilder{
-		name:           P2CBalancerName,
-		circuitBreaker: &cbConfig,
-		withFilter:     true,
+func RegisterP2CBalanceWithFilterAndCircuitBreaker(healthCheck bool, cbConfig circuitbreaker.Config, log logger.Logger) {
+	builder := &p2cBalance{
+		pickerBuilder: picker.NewFilteredPickerBuilder(
+			picker.NewCircuitBreakerPickerBuilder(&picker.P2CPickerBuilder{}, cbConfig),
+		),
+		config: Config{
+			HealthCheck: healthCheck,
+		},
+		Logger: log,
 	}
 	balancer.Register(builder)
 }
 
-type p2cBalanceBuilder struct {
-	name           string
-	circuitBreaker *circuitbreaker.Config
-	withFilter     bool
+type p2cBalance struct {
+	pickerBuilder picker.PickerBuilder
+	config        Config
+
+	// Logger is the logger for this balancer. If nil, the default logger will be used.
+	Logger logger.Logger
 }
 
-func (b *p2cBalanceBuilder) Build(cc balancer.ClientConn, opts balancer.BuildOptions) balancer.Balancer {
-	var pb picker.PickerBuilder = &picker.P2CPickerBuilder{}
-	if b.circuitBreaker != nil {
-		pb = picker.NewCircuitBreakerPickerBuilder(pb, *b.circuitBreaker)
-	}
-	// Wrap with FilteredPickerBuilder only if filter is enabled
-	if b.withFilter {
-		pb = picker.NewFilteredPickerBuilder(pb)
+func (b *p2cBalance) Build(cc balancer.ClientConn, opts balancer.BuildOptions) balancer.Balancer {
+	log := b.Logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
 	}
 
 	bal := &baseBalancer{
 		cc:            cc,
-		pickerBuilder: pb,
+		pickerBuilder: b.pickerBuilder,
+		logger:        log,
 
 		subConns: resolver.NewAddressMapV2[balancer.SubConn](),
 		scStates: make(map[balancer.SubConn]connectivity.State),
 		scAddrs:  make(map[balancer.SubConn]resolver.Address),
 		csEvltr:  &balancer.ConnectivityStateEvaluator{},
-		config:   Config{HealthCheck: true},
+		config:   Config{HealthCheck: b.config.HealthCheck},
 		state:    connectivity.Connecting,
 	}
+
 	bal.picker = picker.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	return bal
 }
 
-func (b *p2cBalanceBuilder) Name() string {
-	return b.name
+func (b *p2cBalance) Name() string {
+	return P2CBalancerName
 }

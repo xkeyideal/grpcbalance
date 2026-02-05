@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-var addrs = []string{"127.0.0.1:50051", "127.0.0.1:50052"}
+var addrs = []string{"127.0.0.1:50051", "127.0.0.1:50052", "127.0.0.1:50053"}
 
 func callUnaryEcho(c pb.EchoClient, message string) {
 	pctx, cancel := context.WithCancel(context.Background())
@@ -26,7 +26,8 @@ func callUnaryEcho(c pb.EchoClient, message string) {
 	ctx := metadata.NewOutgoingContext(pctx, md)
 	r, err := c.UnaryEcho(ctx, &pb.EchoRequest{Message: message})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Printf("could not greet: %v\n", err)
+		return
 	}
 	log.Println(r.Message)
 }
@@ -72,9 +73,10 @@ func main() {
 
 	// https://mdnice.com/writing/5631c3f1ac4047a381daadc81b08f546
 	grpcCfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.RoundRobinBalanceName,
-		Attributes:  attrs,
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		Attributes:        attrs,
+		EnableHealthCheck: true,
 
 		DialTimeout: 10 * time.Second,
 

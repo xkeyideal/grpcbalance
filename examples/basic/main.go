@@ -50,8 +50,9 @@ func main() {
 // 每个请求依次分发到不同的服务器
 func roundRobinExample() {
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.RoundRobinBalanceName, // "round_robin_x"
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -89,9 +90,10 @@ func weightedRoundRobinExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.WeightedRobinBalanceName, // "weighted_round_robin_x"
-		Attributes:  attrs,
+		Endpoints:         addrs,
+		BalanceName:       balancer.WeightedRobinBalanceName,
+		Attributes:        attrs,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -128,9 +130,10 @@ func randomWeightedRoundRobinExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.RandomWeightedRobinBalanceName, // "random_weighted_round_robin_x"
-		Attributes:  attrs,
+		Endpoints:         addrs,
+		BalanceName:       balancer.RandomWeightedRobinBalanceName,
+		Attributes:        attrs,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -159,8 +162,9 @@ func randomWeightedRoundRobinExample() {
 // 将请求发送到当前连接数最少的服务器
 func minConnectExample() {
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.MinConnectBalanceName, // "min_connect_x"
+		Endpoints:         addrs,
+		BalanceName:       balancer.MinConnectBalanceName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -189,8 +193,9 @@ func minConnectExample() {
 // 使用 EWMA 算法计算响应时间，选择响应最快的服务器
 func minRespTimeExample() {
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.MinRespTimeBalanceName, // "min_resp_time_x"
+		Endpoints:         addrs,
+		BalanceName:       balancer.MinRespTimeBalanceName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,

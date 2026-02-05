@@ -224,6 +224,7 @@ func discoveryMetadataLabelSelectorExample() {
 	cfg := &grpclient.Config{
 		BalanceName:           balancer.RoundRobinBalanceName,
 		EnableNodeFilter:      true,
+		EnableHealthCheck:     true,
 		Discovery:             d,
 		DiscoveryPollInterval: 0,
 
@@ -398,10 +399,11 @@ func labelSelectorFilterExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.RoundRobinBalanceName,
-		Attributes:       attrs,
-		EnableNodeFilter: true,
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		Attributes:        attrs,
+		EnableHealthCheck: true,
+		EnableNodeFilter:  true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -533,10 +535,11 @@ func versionFilterExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.RoundRobinBalanceName,
-		Attributes:       attrs,
-		EnableNodeFilter: true, // 启用节点过滤功能
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		Attributes:        attrs,
+		EnableNodeFilter:  true, // 启用节点过滤功能
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -593,10 +596,11 @@ func metadataFilterExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.RoundRobinBalanceName,
-		Attributes:       attrs,
-		EnableNodeFilter: true, // 启用节点过滤功能
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		Attributes:        attrs,
+		EnableNodeFilter:  true, // 启用节点过滤功能
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -647,9 +651,10 @@ func metadataFilterExample() {
 // addressFilterExample 展示按地址过滤节点
 func addressFilterExample() {
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.RoundRobinBalanceName,
-		EnableNodeFilter: true, // 启用节点过滤功能
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		EnableNodeFilter:  true, // 启用节点过滤功能
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -724,10 +729,11 @@ func combinedFilterExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.RoundRobinBalanceName,
-		Attributes:       attrs,
-		EnableNodeFilter: true, // 启用节点过滤功能
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		Attributes:        attrs,
+		EnableNodeFilter:  true, // 启用节点过滤功能
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -782,10 +788,11 @@ func wrrFilterExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:        addrs,
-		BalanceName:      balancer.WeightedRobinBalanceName, // 使用加权轮询
-		Attributes:       attrs,
-		EnableNodeFilter: true, // 启用节点过滤功能
+		Endpoints:         addrs,
+		BalanceName:       balancer.WeightedRobinBalanceName, // 使用加权轮询
+		Attributes:        attrs,
+		EnableNodeFilter:  true, // 启用节点过滤功能
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,

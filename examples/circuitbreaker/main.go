@@ -37,8 +37,9 @@ func main() {
 // 默认配置：连续5次失败后熔断，熔断10秒后尝试恢复
 func defaultCircuitBreakerExample() {
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.RoundRobinBalanceName,
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		EnableHealthCheck: true,
 
 		// 启用熔断器，使用默认配置
 		EnableCircuitBreaker: true,
@@ -91,8 +92,9 @@ func customCircuitBreakerExample() {
 	}
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.RoundRobinBalanceName,
+		Endpoints:         addrs,
+		BalanceName:       balancer.RoundRobinBalanceName,
+		EnableHealthCheck: true,
 
 		EnableCircuitBreaker: true,
 		CircuitBreakerConfig: cbConfig,

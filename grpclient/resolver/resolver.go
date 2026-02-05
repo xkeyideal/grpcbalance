@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	Scheme = "customize-endpoints"
+	Scheme = "x-customize-endpoints" // must be not conflict with other registered resolver schemes
 )
 
 // CustomizeResolver is a Resolver (and resolver.Builder) that can be updated

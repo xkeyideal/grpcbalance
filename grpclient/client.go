@@ -198,64 +198,64 @@ func NewClient(cfg *Config) (*Client, error) {
 	switch cfg.BalanceName {
 	case balancer.WeightedRobinBalanceName:
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterWRRBalanceWithFilterAndCircuitBreaker(true, cbConfig)
+			balancer.RegisterWRRBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterWRRBalanceWithCircuitBreaker(true, cbConfig)
+			balancer.RegisterWRRBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterWRRBalanceWithFilter(true)
+			balancer.RegisterWRRBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterWRRBalance(true)
+			balancer.RegisterWRRBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	case balancer.RandomWeightedRobinBalanceName:
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterRWRRBalanceWithFilterAndCircuitBreaker(true, cbConfig)
+			balancer.RegisterRwrrBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterRWRRBalanceWithCircuitBreaker(true, cbConfig)
+			balancer.RegisterRwrrBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterRWRRBalanceWithFilter(true)
+			balancer.RegisterRwrrBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterRWRRBalance(true)
+			balancer.RegisterRwrrBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	case balancer.MinConnectBalanceName:
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterMcBalanceWithFilterAndCircuitBreaker(true, cbConfig)
+			balancer.RegisterMcBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterMcBalanceWithCircuitBreaker(true, cbConfig)
+			balancer.RegisterMcBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterMcBalanceWithFilter(true)
+			balancer.RegisterMcBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterMcBalance(true)
+			balancer.RegisterMcBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	case balancer.MinRespTimeBalanceName:
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterMrtBalanceWithFilterAndCircuitBreaker(true, cbConfig)
+			balancer.RegisterMrtBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterMrtBalanceWithCircuitBreaker(true, cbConfig)
+			balancer.RegisterMrtBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterMrtBalanceWithFilter(true)
+			balancer.RegisterMrtBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterMrtBalance(true)
+			balancer.RegisterMrtBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	case balancer.P2CBalancerName:
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterP2CBalanceWithFilterAndCircuitBreaker(cbConfig)
+			balancer.RegisterP2CBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterP2CBalanceWithCircuitBreaker(cbConfig)
+			balancer.RegisterP2CBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterP2CBalanceWithFilter()
+			balancer.RegisterP2CBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterP2CBalance()
+			balancer.RegisterP2CBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	default:
 		cfg.BalanceName = balancer.RoundRobinBalanceName
 		if cfg.EnableCircuitBreaker && cfg.EnableNodeFilter {
-			balancer.RegisterRRBalanceWithFilterAndCircuitBreaker(true, cbConfig)
+			balancer.RegisterRRBalanceWithFilterAndCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableCircuitBreaker {
-			balancer.RegisterRRBalanceWithCircuitBreaker(true, cbConfig)
+			balancer.RegisterRRBalanceWithCircuitBreaker(cfg.EnableHealthCheck, cbConfig, cfg.Logger)
 		} else if cfg.EnableNodeFilter {
-			balancer.RegisterRRBalanceWithFilter(true)
+			balancer.RegisterRRBalanceWithFilter(cfg.EnableHealthCheck, cfg.Logger)
 		} else {
-			balancer.RegisterRRBalance(true)
+			balancer.RegisterRRBalance(cfg.EnableHealthCheck, cfg.Logger)
 		}
 	}
 

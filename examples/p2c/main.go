@@ -44,11 +44,12 @@ func main() {
 // basicP2CExample 展示基本的 P2C 负载均衡
 func basicP2CExample() {
 	// 首先需要注册 P2C 负载均衡器
-	balancer.RegisterP2CBalance()
+	balancer.RegisterP2CBalance(true, nil)
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.P2CBalancerName, // "p2c_x"
+		Endpoints:         addrs,
+		BalanceName:       balancer.P2CBalancerName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -88,11 +89,12 @@ func p2cWithCircuitBreakerExample() {
 		HalfOpenMaxRequests: 3,
 		SuccessThreshold:    2,
 	}
-	balancer.RegisterP2CBalanceWithCircuitBreaker(cbConfig)
+	balancer.RegisterP2CBalanceWithCircuitBreaker(true, cbConfig, nil)
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.P2CBalancerName,
+		Endpoints:         addrs,
+		BalanceName:       balancer.P2CBalancerName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
@@ -123,11 +125,12 @@ func p2cWithCircuitBreakerExample() {
 
 // highConcurrencyP2CExample 展示高并发场景下的 P2C
 func highConcurrencyP2CExample() {
-	balancer.RegisterP2CBalance()
+	balancer.RegisterP2CBalance(true, nil)
 
 	cfg := &grpclient.Config{
-		Endpoints:   addrs,
-		BalanceName: balancer.P2CBalancerName,
+		Endpoints:         addrs,
+		BalanceName:       balancer.P2CBalancerName,
+		EnableHealthCheck: true,
 
 		DialTimeout:          10 * time.Second,
 		DialKeepAliveTime:    10 * time.Second,
