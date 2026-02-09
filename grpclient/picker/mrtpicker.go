@@ -105,6 +105,7 @@ func (p *mrtPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Unlock()
 
 	p.logger.Debugf("MrtPicker: picked %s (ewma: %.2fμs)", picked.Addr, ewmaBefore)
+	p.logger.Debugf("MrtPicker: pick info %s", formatPickInfo(opts))
 
 	start := time.Now()
 	done := func(info balancer.DoneInfo) {
@@ -123,9 +124,9 @@ func (p *mrtPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 			p.scCostTime.UpdateItem(item)
 			newEwma := p.scEWMA[item.Index]
 			p.mu.Unlock()
-			p.logger.Debugf("MrtPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs", picked.Addr, latency, ewmaBefore, newEwma)
+			p.logger.Debugf("MrtPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs, info: %s", picked.Addr, latency, ewmaBefore, newEwma, formatDoneInfo(info))
 		} else {
-			p.logger.Debugf("MrtPicker: done %s, error: %v, latency: %.2fμs", picked.Addr, info.Err, latency)
+			p.logger.Debugf("MrtPicker: done %s, error: %v, latency: %.2fμs, info: %s", picked.Addr, info.Err, latency, formatDoneInfo(info))
 		}
 	}
 

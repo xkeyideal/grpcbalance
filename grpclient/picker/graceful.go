@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/connectivity"
 )
@@ -21,6 +22,7 @@ type GracefulSwitchPicker struct {
 	inflightCount   int64 // 当前 picker 正在处理的请求数
 	drainTimeout    time.Duration
 	drainInProgress bool
+	logger          logger.Logger
 }
 
 // NewGracefulSwitchPicker 创建一个平滑切换的 picker
@@ -114,10 +116,15 @@ func (g *GracefulSwitchPicker) drainAndSwap() {
 func (g *GracefulSwitchPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	g.mu.RLock()
 	picker := g.currentPicker
+	log := g.logger
 	g.mu.RUnlock()
 
 	if picker == nil {
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
+	}
+
+	if log != nil {
+		log.Debugf("GracefulPicker: pick info %s", formatPickInfo(info))
 	}
 
 	atomic.AddInt64(&g.inflightCount, 1)
@@ -132,6 +139,9 @@ func (g *GracefulSwitchPicker) Pick(info balancer.PickInfo) (balancer.PickResult
 	originalDone := result.Done
 	result.Done = func(doneInfo balancer.DoneInfo) {
 		atomic.AddInt64(&g.inflightCount, -1)
+		if log != nil {
+			log.Debugf("GracefulPicker: done info %s", formatDoneInfo(doneInfo))
+		}
 		if originalDone != nil {
 			originalDone(doneInfo)
 		}
@@ -158,6 +168,7 @@ type GracefulPickerBuilder struct {
 	drainTimeout time.Duration
 	current      *GracefulSwitchPicker
 	mu           sync.Mutex
+	logger       logger.Logger
 }
 
 // NewGracefulPickerBuilder 创建一个支持平滑切换的 PickerBuilder
@@ -165,6 +176,13 @@ func NewGracefulPickerBuilder(pb PickerBuilder, drainTimeout time.Duration) *Gra
 	return &GracefulPickerBuilder{
 		inner:        pb,
 		drainTimeout: drainTimeout,
+	}
+}
+
+func (gpb *GracefulPickerBuilder) SetLogger(log logger.Logger) {
+	gpb.logger = log
+	if gpb.inner != nil {
+		gpb.inner.SetLogger(log)
 	}
 }
 
@@ -177,6 +195,11 @@ func (gpb *GracefulPickerBuilder) Build(info PickerBuildInfo) balancer.Picker {
 	if gpb.current == nil {
 		gpb.current = NewGracefulSwitchPicker(gpb.drainTimeout)
 	}
+	log := gpb.logger
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+	gpb.current.logger = log
 
 	// 根据节点数量确定状态
 	state := connectivity.Ready

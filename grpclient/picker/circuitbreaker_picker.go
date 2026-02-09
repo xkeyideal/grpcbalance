@@ -100,18 +100,24 @@ func (p *circuitBreakerPicker) Pick(info balancer.PickInfo) (balancer.PickResult
 		return result, err
 	}
 
+	p.logger.Debugf("CircuitBreaker: pick info %s", formatPickInfo(info))
+
 	// Wrap the done callback to track success/failure for circuit breaker
-	addr := p.scToAddr[result.SubConn]
+	addr, ok := p.scToAddr[result.SubConn]
+	if !ok || addr == "" {
+		p.logger.Warnf("CircuitBreaker: missing address for SubConn")
+		return result, nil
+	}
 	cb := p.manager.Get(addr)
 
 	originalDone := result.Done
 	result.Done = func(doneInfo balancer.DoneInfo) {
 		if doneInfo.Err != nil {
 			cb.RecordFailure()
-			p.logger.Debugf("CircuitBreaker: recorded failure for %s", addr)
+			p.logger.Debugf("CircuitBreaker: recorded failure for %s, info: %s", addr, formatDoneInfo(doneInfo))
 		} else {
 			cb.RecordSuccess()
-			p.logger.Debugf("CircuitBreaker: recorded success for %s", addr)
+			p.logger.Debugf("CircuitBreaker: recorded success for %s, info: %s", addr, formatDoneInfo(doneInfo))
 		}
 
 		if originalDone != nil {

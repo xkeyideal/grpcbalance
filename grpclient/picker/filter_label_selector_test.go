@@ -42,7 +42,7 @@ func TestLabelSelectorFilter_SliceAttr(t *testing.T) {
 }
 
 func TestLabelSelectorFilter_NumberAttr(t *testing.T) {
-	f, err := LabelSelectorFilter("customize_weight>2")
+	f, err := LabelSelectorFilter("x_customize_weight>2")
 	if err != nil {
 		t.Fatalf("LabelSelectorFilter parse: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestLabelSelectorFilter_MoreSelectors(t *testing.T) {
 		{"slice in", "tags in (b,c)", base, true},
 		{"pattern", "id~=foo*bar?", base, true},
 		{"semver", "v@^1.1.0 || >=2", base, true},
-		{"numeric decimal from int32", "customize_weight>2", base, true},
+		{"numeric decimal from int32", "x_customize_weight>2", base, true},
 		{"numeric hex string", "a>0xfe", base, true},
 		{"and", "system.ip=127.0.0.1, env=prod, tags in (b)", base, true},
 		{"and fail", "system.ip=127.0.0.1, env=staging", base, false},

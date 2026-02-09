@@ -95,16 +95,18 @@ func (p *mcPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Unlock()
 
 	p.logger.Debugf("McPicker: picked %s (connections: %d -> %d)", picked.Addr, connCountBefore, connCountBefore+1)
+	p.logger.Debugf("McPicker: pick info %s", formatPickInfo(opts))
 
 	done := func(info balancer.DoneInfo) {
 		p.mu.Lock()
 		item.Val--
 		p.scConnectNum.UpdateItem(item)
+		connCount := item.Val
 		p.mu.Unlock()
 		if info.Err != nil {
-			p.logger.Debugf("McPicker: done %s, error: %v, connections: %d", picked.Addr, info.Err, item.Val)
+			p.logger.Debugf("McPicker: done %s, error: %v, connections: %d, info: %s", picked.Addr, info.Err, connCount, formatDoneInfo(info))
 		} else {
-			p.logger.Debugf("McPicker: done %s, success, connections: %d", picked.Addr, item.Val)
+			p.logger.Debugf("McPicker: done %s, connections: %d, info: %s", picked.Addr, connCount, formatDoneInfo(info))
 		}
 	}
 

@@ -377,11 +377,12 @@ func filterCacheKey(nodes map[balancer.SubConn]SubConnInfo) string {
 }
 
 func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
+	fp.logger.Debugf("Filter: pick info %s", formatPickInfo(info))
 	// 获取过滤器
 	filters := NodeFiltersFromContext(info.Ctx)
 	if len(filters) == 0 {
 		// 没有过滤器，使用预构建的 defaultPicker
-		return fp.defaultPicker.Pick(info)
+		return fp.wrapPick(fp.defaultPicker, info)
 	}
 
 	// 过滤节点
@@ -406,7 +407,7 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 
 	// 如果过滤后的节点与全部节点相同，使用 defaultPicker
 	if len(filteredNodes) == len(fp.allNodes) {
-		return fp.defaultPicker.Pick(info)
+		return fp.wrapPick(fp.defaultPicker, info)
 	}
 
 	fp.logger.Debugf("Filter: %d/%d SubConns matched filter criteria", len(filteredNodes), len(fp.allNodes))
@@ -420,7 +421,7 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 	fp.mu.RUnlock()
 
 	if ok {
-		return cachedPicker.Pick(info)
+		return fp.wrapPick(cachedPicker, info)
 	}
 
 	// 缓存未命中，需要构建新的 picker
@@ -428,7 +429,7 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 	// 双重检查
 	if cachedPicker, ok = fp.cachedPickers[cacheKey]; ok {
 		fp.mu.Unlock()
-		return cachedPicker.Pick(info)
+		return fp.wrapPick(cachedPicker, info)
 	}
 
 	// 构建并缓存
@@ -436,7 +437,24 @@ func (fp *filteredPicker) Pick(info balancer.PickInfo) (balancer.PickResult, err
 	fp.cachedPickers[cacheKey] = picker
 	fp.mu.Unlock()
 
-	return picker.Pick(info)
+	return fp.wrapPick(picker, info)
+}
+
+func (fp *filteredPicker) wrapPick(picker balancer.Picker, info balancer.PickInfo) (balancer.PickResult, error) {
+	result, err := picker.Pick(info)
+	if err != nil {
+		return result, err
+	}
+
+	originalDone := result.Done
+	result.Done = func(doneInfo balancer.DoneInfo) {
+		fp.logger.Debugf("Filter: done info %s", formatDoneInfo(doneInfo))
+		if originalDone != nil {
+			originalDone(doneInfo)
+		}
+	}
+
+	return result, nil
 }
 
 // AddressFilter 根据地址列表过滤节点

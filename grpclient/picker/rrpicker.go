@@ -73,12 +73,13 @@ func (p *rrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Unlock()
 
 	p.logger.Debugf("RRPicker: picked %s (index: %d/%d)", picked.Addr, (p.next-1+n)%n, n)
+	p.logger.Debugf("RRPicker: pick info %s", formatPickInfo(opts))
 
 	done := func(info balancer.DoneInfo) {
 		if info.Err != nil {
-			p.logger.Debugf("RRPicker: done %s, error: %v", picked.Addr, info.Err)
+			p.logger.Debugf("RRPicker: done %s, error: %v, info: %s", picked.Addr, info.Err, formatDoneInfo(info))
 		} else {
-			p.logger.Debugf("RRPicker: done %s, success", picked.Addr)
+			p.logger.Debugf("RRPicker: done %s, info: %s", picked.Addr, formatDoneInfo(info))
 		}
 	}
 

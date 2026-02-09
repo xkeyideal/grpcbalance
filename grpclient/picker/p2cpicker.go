@@ -118,6 +118,8 @@ func (p *p2cPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 
+	p.logger.Debugf("P2CPicker: pick info %s", formatPickInfo(opts))
+
 	// 只有一个节点时直接选择
 	if len(p.nodes) == 1 {
 		return p.pickNode(p.nodes[0])
@@ -155,8 +157,11 @@ func (p *p2cPicker) pickNode(node *p2cNode) (balancer.PickResult, error) {
 
 	addr := node.addr.Addr
 	loadBefore := node.load()
+	node.mu.RLock()
 	ewmaBefore := node.ewma
-	p.logger.Debugf("P2CPicker: picked %s (load: %.2f, ewma: %.2fμs, inflight: %d)", addr, loadBefore, ewmaBefore, node.inflight)
+	node.mu.RUnlock()
+	inflightNow := atomic.LoadInt64(&node.inflight)
+	p.logger.Debugf("P2CPicker: picked %s (load: %.2f, ewma: %.2fμs, inflight: %d)", addr, loadBefore, ewmaBefore, inflightNow)
 
 	start := time.Now()
 	done := func(info balancer.DoneInfo) {
@@ -178,10 +183,11 @@ func (p *p2cPicker) pickNode(node *p2cNode) (balancer.PickResult, error) {
 		newEwma := node.ewma
 		node.mu.Unlock()
 
+		inflightNow := atomic.LoadInt64(&node.inflight)
 		if info.Err != nil {
-			p.logger.Debugf("P2CPicker: done %s, error: %v, latency: %.2fμs, inflight: %d", addr, info.Err, latency, node.inflight)
+			p.logger.Debugf("P2CPicker: done %s, error: %v, latency: %.2fμs, inflight: %d, info: %s", addr, info.Err, latency, inflightNow, formatDoneInfo(info))
 		} else {
-			p.logger.Debugf("P2CPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs, inflight: %d", addr, latency, ewmaBefore, newEwma, node.inflight)
+			p.logger.Debugf("P2CPicker: done %s, latency: %.2fμs, ewma: %.2fμs -> %.2fμs, inflight: %d, info: %s", addr, latency, ewmaBefore, newEwma, inflightNow, formatDoneInfo(info))
 		}
 	}
 

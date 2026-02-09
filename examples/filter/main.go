@@ -513,7 +513,7 @@ func labelSelectorFilterExample() {
 	run("业务场景6：架构约束（tags in (arm)）", "env=prod, tags in (arm)")
 
 	// 业务场景 7：容量/成本（只走 weight>1 的节点）
-	run("业务场景7：容量约束（customize_weight>1）", "env=prod, customize_weight>1")
+	run("业务场景7：容量约束（x_customize_weight>1）", "env=prod, x_customize_weight>1")
 
 	// 业务场景 8：问题定位（精确打到某个 IP 的节点）
 	run("业务场景8：问题定位（system.ip=10.0.1.11）", "system.ip=10.0.1.11")

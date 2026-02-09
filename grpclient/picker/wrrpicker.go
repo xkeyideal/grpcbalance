@@ -88,12 +88,13 @@ func (p *wrrPicker) Pick(opts balancer.PickInfo) (balancer.PickResult, error) {
 	p.mu.Unlock()
 
 	p.logger.Debugf("WRRPicker: picked %s (index: %d, weight: %d)", picked.Addr, currentIndex, p.wrr.weights[currentIndex])
+	p.logger.Debugf("WRRPicker: pick info %s", formatPickInfo(opts))
 
 	done := func(info balancer.DoneInfo) {
 		if info.Err != nil {
-			p.logger.Debugf("WRRPicker: done %s, error: %v", picked.Addr, info.Err)
+			p.logger.Debugf("WRRPicker: done %s, error: %v, info: %s", picked.Addr, info.Err, formatDoneInfo(info))
 		} else {
-			p.logger.Debugf("WRRPicker: done %s, success", picked.Addr)
+			p.logger.Debugf("WRRPicker: done %s, info: %s", picked.Addr, formatDoneInfo(info))
 		}
 	}
 

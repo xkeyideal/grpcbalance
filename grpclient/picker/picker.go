@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"fmt"
+
 	"github.com/xkeyideal/grpcbalance/grpclient/logger"
 
 	"google.golang.org/grpc/balancer"
@@ -32,4 +34,12 @@ type PickerBuildInfo struct {
 // balancer.
 type SubConnInfo struct {
 	Address resolver.Address // the address used to create this SubConn
+}
+
+func formatPickInfo(info balancer.PickInfo) string {
+	return fmt.Sprintf("%+v", info)
+}
+
+func formatDoneInfo(info balancer.DoneInfo) string {
+	return fmt.Sprintf("%+v", info)
 }
